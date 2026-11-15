@@ -602,6 +602,7 @@ void p100_moe_mode(const DW& A, size_t sa, const BigJob* jobs, const int* njobs,
         case T_IQ2_S: P100_JOB(22); break;
         case T_IQ4_XS: P100_JOB(23); break;
         case T_IQ4_NL: P100_JOB(20); break;
+        case T_NVFP4: P100_JOB(40); break;   // edge0_patch.py
         case T_Q4_K: P100_JOB(12); break;   // q4x_patch.py
         case T_Q5_K: P100_JOB(13); break;
         case T_Q5_1: P100_JOB(7); break;

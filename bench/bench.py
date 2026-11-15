@@ -39,7 +39,7 @@ INPUT_PATHS = ("docs", "src", "tools/collect_profile_traces.py")
 # Our numbers (2 x Tesla P100 16 GB PCIe x16 Gen3, 2 x Xeon Bronze 3106, 96 GB DDR4; profile/ with FNX_ROUTE_PRIOR=0): this
 # benchmark on this release's engine (c213636c) as build.sh built it, each on a freshly loaded engine, 13 Nov 2026, one run each
 # (README, "Our numbers"; UD-Q4_K_XL's in a second window that day, with the profiles as they are now). Keys: --ours, or the model
-# the server reports (auto: q4_k_xl is the 512k profile).
+# the server reports (auto: q4_k_xl is the 512k profile; edge0 Edge0-145B's).
 REFERENCE = {
     "iq3_s": {   # the IQ3_S profile (512k); pictures were off in this run (our rounds: first answer 2.6-2.7 s, then 52.4-52.6)
         "fresh": 66.63, "edit_py": 110.95, "edit_md": 116.0, "long_read": 953.9, "long_write": 61.8,
@@ -59,6 +59,11 @@ REFERENCE = {
         "fresh": 51.07, "edit_py": 63.0, "edit_md": 63.7, "long_read": 900.8, "long_write": 48.0,
         "medium": {6000: 603, 12000: 755, 18000: 793, 24000: 752, 36000: 887, 48000: 805, 72000: 853},
         "image_first_s": 4.08, "image_write": 43.2,
+    },
+    "edge0": {   # Edge0-145B (512k), 15 Nov 2026, our Edge0 production engine (f6088fde, this folder's sources) through run.sh (README, "Edge0-145B")
+        "fresh": 55.11, "edit_py": 96.55, "edit_md": 99.05, "long_read": 669.2, "long_write": 57.3,
+        "medium": {6000: 519, 12000: 592, 18000: 615, 24000: 587, 36000: 666, 48000: 627, 72000: 650},
+        "image_first_s": 5.09, "image_write": 46.3,
     },
 }
 UNITS = {"image_first_s": "s"}
@@ -264,11 +269,13 @@ def summary(results, ours):
 
 
 def which_reference(b):
-    """auto: q4_k_xl when the server's model name says so, else iq3_s (the 64 GB mode is chosen with --ours)."""
+    """auto: q4_k_xl or edge0 when the server's model name says so, else iq3_s (the 64 GB mode is chosen with --ours)."""
     try:
         ids = [m.get("id", "") for m in b.http("GET", "/v1/models", timeout=10).get("data", [])]
     except Exception:
         ids = []
+    if any("edge0" in i.lower() for i in ids):
+        return "edge0"
     return "q4_k_xl" if any("q4_k_xl" in i.lower() for i in ids) else "iq3_s"
 
 

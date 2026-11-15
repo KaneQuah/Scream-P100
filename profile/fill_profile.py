@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Writes a run config for Strata's server (serve/server.py --config) from one of the two templates in this folder.
+"""Writes a run config for Strata's server (serve/server.py --config) from one of the templates in this folder.
 
     python3 profile/fill_profile.py --models /data/flash-next --mtp /data/flash-next/mtp/rt \
         --tokenizer /data/flash-next/tokenizer --vision-exe /opt/strata-v0.2.9/build-vision/bin/strata-vision \
         --logs /var/tmp --out my-profile.json
 
---models     the folder with the model's files (both IQ3_S shards, or the four UD-Q4_K_XL parts) and
-             mmproj-Qwen3.8-Flash-Next-BF16.gguf
+--models     the folder with the model's files (both IQ3_S shards, or the four UD-Q4_K_XL parts, or Edge0's four files in
+             edge0-145b/ beside the IQ3_S's second shard) and mmproj-Qwen3.8-Flash-Next-BF16.gguf
 --model      iq3_s (default): ISTA-DASLab's IQ3_S, flash-next-iq3s-512k.template.json; q4_k_xl: Unsloth's UD-Q4_K_XL,
              flash-next-q4_k_xl-512k.template.json (README, "Unsloth's UD-Q4_K_XL"; its 256k one with
-             --template profile/flash-next-q4_k_xl-256k.template.json)
+             --template profile/flash-next-q4_k_xl-256k.template.json); edge0: Edge0's Edge0-145B-NVFP4,
+             flash-next-edge0-512k.template.json (README, "Edge0-145B")
 --mtp        the MTP draft layer's runtime folder (dense.bin, dense.txt, experts.bin; README, "The MTP draft layer")
 --tokenizer  the tokenizer folder (vocab.json, merges.txt, chat_template.jinja ...; README, "The tokenizer folder")
 --vision-exe Strata's strata-vision; leave it out to run without pictures (the "vision" block and --vision go)
@@ -38,6 +39,10 @@ MODELS = {
               [f"Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-0000{i}-of-00002.gguf" for i in (1, 2)]),
     "q4_k_xl": ("flash-next-q4_k_xl-512k.template.json",
                 [f"Qwen3.8-Flash-Next-UD-Q4_K_XL-0000{i}-of-00004.gguf" for i in (1, 2, 3, 4)]),
+    # Edge0-145B: the skeleton GGUF is --native, the latent experts and D/U beside it (FNX_LATENT), the lookup table from the
+    # IQ3_S's second shard (FNX_LATENT_PLE, checked below)
+    "edge0": ("flash-next-edge0-512k.template.json",
+              ["model-skeleton.gguf", "experts.bin", "latent_dense_q8.bin", "labels.bin"]),
 }
 
 
@@ -63,6 +68,8 @@ def main():
         sys.exit("--route-prior: 0 or more")
     if a.ram == "64" and a.model != "iq3_s":
         sys.exit("--ram 64: only with --model iq3_s (UD-Q4_K_XL's experts alone are 72 GiB)")
+    if a.coder and a.model == "edge0":
+        sys.exit("--coder: not with --model edge0 (the Coder's list names Flash-Next's experts, not Edge0's latent ones)")
     cards = a.gpu.split(",")
     if len(cards) != 2 or not all(c.strip().isdigit() for c in cards) or cards[0].strip() == cards[1].strip():
         sys.exit("--gpu: two different card numbers, e.g. 0,1")
@@ -113,6 +120,8 @@ def main():
         need += [cfg["vision"]["exe"], cfg["vision"]["mmproj"]]
     if "FNX_EXPERT_MASK" in cfg["env"]:
         need.append(cfg["env"]["FNX_EXPERT_MASK"])
+    if "FNX_LATENT_PLE" in cfg["env"]:
+        need.append(cfg["env"]["FNX_LATENT_PLE"])
     missing = [p for p in need if not Path(p).exists()]
     if missing:
         sys.exit("missing, nothing written:\n  " + "\n  ".join(missing))

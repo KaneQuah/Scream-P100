@@ -2,8 +2,9 @@
 # setup.sh DATA [options]: everything the engine needs besides itself, in the folder DATA (run build.sh first):
 #
 #   DATA/strata-v0.2.9    Strata's server and tools at v0.2.9, with their Python environment (.venv)
-#   DATA/models           the model's two IQ3_S shards (or with --model q4_k_xl the four UD-Q4_K_XL parts) and the picture
-#                         projector (85 GB, or 112 GB), checked against SHA-256
+#   DATA/models           the model's two IQ3_S shards (or with --model q4_k_xl the four UD-Q4_K_XL parts, or with --model edge0
+#                         Edge0's four files in edge0-145b/ and the IQ3_S's second shard) and the picture projector (85 GB,
+#                         112 GB, or 87 GB), checked against SHA-256
 #   DATA/prep/tokenizer   the tokenizer folder, from the GGUF's metadata (Strata's tools/strata_tokenizer.py)
 #   DATA/prep/mtp-rt      the MTP draft layer: 5.2 GB read from Qwen's checkpoint and packed (Strata's tools/mtp_*.py)
 #   DATA/strata-v0.2.9/build-vision/bin/strata-vision   the picture encoder (not with --no-pictures)
@@ -16,10 +17,12 @@
 #   bash setup.sh /data/flash-next --models /mnt/models --no-pictures --route-prior 0.15
 #   bash setup.sh /data/flash-next --ram 64                   # a machine with 64 GB of RAM (README, "64 GB of RAM")
 #   bash setup.sh /data/flash-next-q4 --model q4_k_xl         # Unsloth's UD-Q4_K_XL (README, "Unsloth's UD-Q4_K_XL")
+#   bash setup.sh /data/edge0 --model edge0                   # Edge0's Edge0-145B-NVFP4 (README, "Edge0-145B")
 #   bash setup.sh /data/flash-next-coder --models /data/flash-next/models --coder   # the Coder's experts only (README, "Coder")
 #
 # Options:
-#   --model M        iq3_s (default): ISTA-DASLab's GSQ-RCO IQ3_S; q4_k_xl: Unsloth's UD-Q4_K_XL (512k, needs 96 GB of RAM)
+#   --model M        iq3_s (default): ISTA-DASLab's GSQ-RCO IQ3_S; q4_k_xl: Unsloth's UD-Q4_K_XL (512k, needs 96 GB of RAM);
+#                    edge0: Edge0's Edge0-145B-NVFP4 (512k, needs 96 GB of RAM)
 #   --models DIR     the model files somewhere else (for example already downloaded); missing ones are downloaded there
 #   --strata DIR     an existing Strata checkout at v0.2.9 instead of DATA/strata-v0.2.9
 #   --no-pictures    no projector download, no encoder build, a profile without pictures
@@ -39,12 +42,17 @@ STRATA_TAG=v0.2.9
 STRATA_COMMIT=c62d5e3a15b40ea51c96aae9e8d36928965f53ab
 ISTA=https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF/resolve/ed59f92082b1e93c0e96d60a8b11aab089b52f09   # Strata's pin
 UNSLOTH=https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/084c631ac221016019d6e0a863afe92d90edd3b0/UD-Q4_K_XL
+EDGE0=https://huggingface.co/Edge0/Edge0-145B-NVFP4/resolve/cf9b3679e7da201a658a694e1730607193f2b032
 IQ3_S=(Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00002-of-00002.gguf)
 Q4_K_XL=(Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf Qwen3.8-Flash-Next-UD-Q4_K_XL-00002-of-00004.gguf
          Qwen3.8-Flash-Next-UD-Q4_K_XL-00003-of-00004.gguf Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf)
-MMPROJ=mmproj-Qwen3.8-Flash-Next-BF16.gguf   # ISTA-DASLab's projector, also for UD-Q4_K_XL (ours runs it with both)
+# Edge0: the skeleton GGUF (dense layers, router, tokenizer), the latent experts (NVFP4), D/U (Q8_0) and the experts' groups; its
+# lookup table is the IQ3_S's second shard (the same table)
+EDGE0_FILES=(edge0-145b/model-skeleton.gguf edge0-145b/experts.bin edge0-145b/latent_dense_q8.bin edge0-145b/labels.bin)
+MMPROJ=mmproj-Qwen3.8-Flash-Next-BF16.gguf   # ISTA-DASLab's projector, also for UD-Q4_K_XL and Edge0 (ours runs it with all three)
 declare -A SIZE=([${IQ3_S[0]}]=54817524224 [${IQ3_S[1]}]=28800138432
                  [${Q4_K_XL[0]}]=10946618 [${Q4_K_XL[1]}]=49720539552 [${Q4_K_XL[2]}]=32803030176 [${Q4_K_XL[3]}]=28800138432
+                 [${EDGE0_FILES[0]}]=5991569248 [${EDGE0_FILES[1]}]=47563800576 [${EDGE0_FILES[2]}]=3743416320 [${EDGE0_FILES[3]}]=98304
                  [$MMPROJ]=907543008)
 declare -A SHA=([${IQ3_S[0]}]=4c1eb2ceb4915e1192f4f386021897bde56a97f40a0bb78bb86465e0f7d2aca3
                 [${IQ3_S[1]}]=316b46f3a2dbd68c900f43136ab9449f9dcc3725dfd8c794847c204bc161e113
@@ -52,15 +60,19 @@ declare -A SHA=([${IQ3_S[0]}]=4c1eb2ceb4915e1192f4f386021897bde56a97f40a0bb78bb8
                 [${Q4_K_XL[1]}]=45792ae869072d8229384c51c7c73dd959e191505252b41dd71852d9746f5ce4
                 [${Q4_K_XL[2]}]=8c76e79d444b16a663d9c8db54e585ed3b1da13eebd2619c37b0c355da803c82
                 [${Q4_K_XL[3]}]=5de8b5dbf89409acc39468decafd4a4a95b13c29d88a14b0356107897829ec36
+                [${EDGE0_FILES[0]}]=ab49fbe7590cdcda45d7a2bcae4be0bd42c6a70b951d594a00eb158d7df0b72f
+                [${EDGE0_FILES[1]}]=a39b0c127983b85d07326c8bad49260d6b475293b46e4166428c91a765ee593a
+                [${EDGE0_FILES[2]}]=fbb25caaa0dcf45ef62f1a4945dcf98a53a166934a3b461b166fbafa831d87ca
+                [${EDGE0_FILES[3]}]=ce9b4a20b92c5c866e65d84a3884c104986522471cf11cc5f797a153affbcc06
                 [$MMPROJ]=b1a82259702816a5330d7bd7607cd9676b11780e79ff7348c21103ff3ce49bd0)
 
-[ $# -ge 1 ] && [ "${1#-}" = "$1" ] || die "usage: bash setup.sh DATA [--model iq3_s|q4_k_xl] [--models DIR] [--strata DIR] [--no-pictures] [--route-prior X] [--ram 96|64] [--coder] [--check]"
+[ $# -ge 1 ] && [ "${1#-}" = "$1" ] || die "usage: bash setup.sh DATA [--model iq3_s|q4_k_xl|edge0] [--models DIR] [--strata DIR] [--no-pictures] [--route-prior X] [--ram 96|64] [--coder] [--check]"
 DATA=$1
 shift
 MODEL=iq3_s MODELS='' STRATA='' PICTURES=1 PRIOR=0 RAM=96 CODER=0 CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --model) MODEL=${2:?--model iq3_s or q4_k_xl}; [ "$MODEL" = iq3_s ] || [ "$MODEL" = q4_k_xl ] || die "--model: iq3_s or q4_k_xl"; shift 2 ;;
+    --model) MODEL=${2:?--model iq3_s, q4_k_xl or edge0}; case "$MODEL" in iq3_s|q4_k_xl|edge0) ;; *) die "--model: iq3_s, q4_k_xl or edge0" ;; esac; shift 2 ;;
     --models) MODELS=${2:?--models DIR}; shift 2 ;;
     --strata) STRATA=${2:?--strata DIR}; shift 2 ;;
     --no-pictures) PICTURES=0; shift ;;
@@ -71,7 +83,8 @@ while [ $# -gt 0 ]; do
     *) die "unknown option $1" ;;
   esac
 done
-[ "$RAM" = 96 ] || [ "$MODEL" = iq3_s ] || die "--ram 64: only with the IQ3_S file (UD-Q4_K_XL's experts alone are 72 GiB)"
+[ "$RAM" = 96 ] || [ "$MODEL" = iq3_s ] || die "--ram 64: only with the IQ3_S file (UD-Q4_K_XL's and Edge0's profiles need 96 GB)"
+[ "$CODER" = 0 ] || [ "$MODEL" != edge0 ] || die "--coder: not with --model edge0 (the Coder's list names Flash-Next's experts, not Edge0's)"
 abspath() { case "$1" in /*) echo "$1" ;; *) echo "$PWD/$1" ;; esac; }
 DATA=$(abspath "$DATA")
 MODELS=$(abspath "${MODELS:-$DATA/models}")
@@ -82,7 +95,12 @@ GG=$HERE/third_party/llama.cpp
 declare -A URL=([$MMPROJ]=$ISTA/$MMPROJ)
 for f in "${IQ3_S[@]}"; do URL[$f]=$ISTA/$f; done
 for f in "${Q4_K_XL[@]}"; do URL[$f]=$UNSLOTH/$f; done
-if [ "$MODEL" = iq3_s ]; then NEEDED=("${IQ3_S[@]}"); else NEEDED=("${Q4_K_XL[@]}"); fi
+for f in "${EDGE0_FILES[@]}"; do URL[$f]=$EDGE0/${f#edge0-145b/}; done
+case $MODEL in
+  iq3_s) NEEDED=("${IQ3_S[@]}") ;;
+  q4_k_xl) NEEDED=("${Q4_K_XL[@]}") ;;
+  edge0) NEEDED=("${EDGE0_FILES[@]}" "${IQ3_S[1]}") ;;   # the skeleton first: the tokenizer comes from it
+esac
 SHARD1=${NEEDED[0]}
 [ "$PICTURES" = 1 ] && NEEDED+=("$MMPROJ")
 TODO=0
@@ -109,8 +127,8 @@ else
   say "WARNING: no nvidia-smi; the profile names cards 0,1"
 fi
 mem_gib=$(awk '/^MemTotal:/ {print int($2 / 1048576)}' /proc/meminfo)
-if [ "$RAM" = 96 ] && [ "$MODEL" = q4_k_xl ] && [ "$mem_gib" -lt 88 ]; then
-  say "WARNING: $mem_gib GiB of RAM; UD-Q4_K_XL needs 96 GB; with 64 GB use the IQ3_S file and --ram 64"
+if [ "$RAM" = 96 ] && [ "$MODEL" != iq3_s ] && [ "$mem_gib" -lt 88 ]; then
+  say "WARNING: $mem_gib GiB of RAM; this model needs 96 GB; with 64 GB use the IQ3_S file and --ram 64"
 elif [ "$RAM" = 96 ] && [ "$mem_gib" -lt 88 ]; then
   say "WARNING: $mem_gib GiB of RAM; this profile needs 96 GB (about 85 GiB once loaded, more while loading); with 64 GB use --ram 64"
 elif [ "$RAM" = 64 ] && [ "$mem_gib" -lt 60 ]; then
@@ -176,7 +194,7 @@ for f in "${NEEDED[@]}"; do
     if [ -f "$p" ]; then todo "check $p"; else todo "download $f ($(gb "${SIZE[$f]}"))"; fi
     continue
   fi
-  mkdir -p "$MODELS"
+  mkdir -p "$(dirname "$p")"
   if [ ! -f "$p" ]; then
     part=$p.part
     if [ "$(stat -L -c %s "$part" 2>/dev/null || echo 0)" != "${SIZE[$f]}" ]; then

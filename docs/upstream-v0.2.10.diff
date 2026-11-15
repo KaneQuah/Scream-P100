@@ -1,6 +1,6 @@
-diff -ruN a/CMakeLists.txt b/CMakeLists.txt
---- a/CMakeLists.txt	2026-11-13 16:22:57.738403100 +0100
-+++ b/CMakeLists.txt	2026-11-13 16:23:08.262165500 +0100
+diff -ruN -x data a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2026-11-15 06:43:51.887688400 +0100
++++ b/CMakeLists.txt	2026-11-15 06:43:52.369804000 +0100
 @@ -63,7 +63,7 @@
  
  set(_sp ${CMAKE_CURRENT_SOURCE_DIR})
@@ -10,9 +10,9 @@ diff -ruN a/CMakeLists.txt b/CMakeLists.txt
      ${_sp}/src/engine_common.cu ${_sp}/src/prefill.cu ${_sp}/src/session.cpp ${_sp}/src/batch.cpp ${_sp}/tools/sfnx.cpp)
  if(_fnx_hip)
    list(APPEND _sp_engine ${_sp}/src/selftest.cu)   # the kernel self-test of a card Strata has not run the split on (hip/selftest_policy.hpp)
-diff -ruN a/p100_compat.h b/p100_compat.h
+diff -ruN -x data a/p100_compat.h b/p100_compat.h
 --- a/p100_compat.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/p100_compat.h	2026-11-13 16:23:08.266518700 +0100
++++ b/p100_compat.h	2026-11-15 06:43:52.373065600 +0100
 @@ -0,0 +1,66 @@
 +// p100_compat.h: what the split engine's kernels ask of a card and sm_60 does not have (force-included in every CUDA source).
 +#pragma once
@@ -80,9 +80,9 @@ diff -ruN a/p100_compat.h b/p100_compat.h
 +// the wait loops' short sleep, sm_70 on; here they simply spin
 +__device__ __forceinline__ void fnx_nanosleep(unsigned) {}
 +#define __nanosleep fnx_nanosleep
-diff -ruN a/src/attn_prompt.cuh b/src/attn_prompt.cuh
---- a/src/attn_prompt.cuh	2026-11-13 16:22:58.560691700 +0100
-+++ b/src/attn_prompt.cuh	2026-11-13 16:23:07.958775100 +0100
+diff -ruN -x data a/src/attn_prompt.cuh b/src/attn_prompt.cuh
+--- a/src/attn_prompt.cuh	2026-11-15 06:43:51.713640700 +0100
++++ b/src/attn_prompt.cuh	2026-11-15 06:43:52.272310300 +0100
 @@ -18,6 +18,7 @@
  static_assert(AP_THREADS / 32 * 2 * 16 == HD, "eight warps of two 16-column O tiles");
  static_assert(AP_THREADS / 32 * APC <= AP_LDF && APC % 16 == 0, "the S partials of a tile side by side in st");
@@ -281,9 +281,9 @@ diff -ruN a/src/attn_prompt.cuh b/src/attn_prompt.cuh
  // this card's heads: its own partial and the others' (from card g + 1 in slot 0, g + 2 in slot 1, ...), merged; the gate
  __global__ void __launch_bounds__(HD) k_pf_attn_merge(const float* __restrict__ own, const float* __restrict__ recv,
                                                        const float* __restrict__ qg, float* __restrict__ out, int C, int card) {
-diff -ruN a/src/batch.cpp b/src/batch.cpp
---- a/src/batch.cpp	2026-11-13 16:22:57.771938500 +0100
-+++ b/src/batch.cpp	2026-11-13 16:23:07.526045600 +0100
+diff -ruN -x data a/src/batch.cpp b/src/batch.cpp
+--- a/src/batch.cpp	2026-11-15 06:43:51.719621500 +0100
++++ b/src/batch.cpp	2026-11-15 06:43:52.154037400 +0100
 @@ -139,16 +139,17 @@
      last_verify_ms = ms_since(tv);
      last_rows = T;
@@ -324,9 +324,9 @@ diff -ruN a/src/batch.cpp b/src/batch.cpp
          if (L.shadow >= 0) {   // no drafts this window: the draft layer's unverified first draft, scored as it would have stood
              double stand;
              if (L.s.temperature <= 0.f) {
-diff -ruN a/src/dense.cuh b/src/dense.cuh
---- a/src/dense.cuh	2026-11-13 16:22:58.604921400 +0100
-+++ b/src/dense.cuh	2026-11-13 16:23:07.555130000 +0100
+diff -ruN -x data a/src/dense.cuh b/src/dense.cuh
+--- a/src/dense.cuh	2026-11-15 06:43:51.725814900 +0100
++++ b/src/dense.cuh	2026-11-15 06:43:52.160777700 +0100
 @@ -5,6 +5,60 @@
  
  constexpr int Q8S_THREADS = 256, Q8S_SEGS = 3;
@@ -541,9 +541,9 @@ diff -ruN a/src/dense.cuh b/src/dense.cuh
 +}
 +
  }  // namespace
-diff -ruN a/src/engine.cu b/src/engine.cu
---- a/src/engine.cu	2026-11-13 16:22:58.617961400 +0100
-+++ b/src/engine.cu	2026-11-13 16:23:08.051443100 +0100
+diff -ruN -x data a/src/engine.cu b/src/engine.cu
+--- a/src/engine.cu	2026-11-15 06:43:51.727327700 +0100
++++ b/src/engine.cu	2026-11-15 06:43:52.308611800 +0100
 @@ -5,8 +5,10 @@
  #include "engine_parts.hpp"
  #include "env.hpp"
@@ -712,7 +712,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
          b->topw = dalloc<float>(P);
          b->topi = dalloc<int>(P);
          b->njobs = dalloc<int>(2);
-@@ -170,6 +280,10 @@
+@@ -170,6 +280,23 @@
          if (w.ec.n_slots) b->cache_list = dalloc<int>(1 + P);
          b->gu = dalloc<float>((size_t) (P + MAXT) * 2 * ffs);
          b->part = dalloc<float>((size_t) (P + MAXT) * N);
@@ -720,10 +720,23 @@ diff -ruN a/src/engine.cu b/src/engine.cu
 +            b->xh16 = dalloc<uint16_t>((size_t) MAXT * N);
 +            b->h16 = dalloc<uint16_t>((size_t) (P + MAXT) * ffs);
 +        }
++        if (std::getenv("FNX_LATENT")) {   // edge0_patch.py
++            b->lxl = dalloc<float>((size_t) MAXT * LAT_W);
++            b->lxl16 = dalloc<uint16_t>((size_t) MAXT * LAT_W);
++            b->lz = dalloc<float>((size_t) MAXT * LAT_W);
++            b->latu = dalloc<float>((size_t) MAXT * N);
++            b->lzq = dalloc<uint8_t>((size_t) MAXT * q8_1_bytes(LAT_W));
++            q8_twin(b->lzq, (size_t) MAXT * q8_1_bytes(LAT_W), dalloc<int8_t>((size_t) MAXT * LAT_W), dalloc<float>((size_t) MAXT * LAT_W / 32));
++            own([q = (const void*) b->lzq] { q8_untwin(q); });
++            if (g_lat_split) {   // edge0_patch6.py
++                b->lxg_in = hxalloc<unsigned long long>(lat_x_words());
++                b->lzs_in = hxalloc<unsigned long long>(lat_x_words());
++            }
++        }
          b->sh_gu = dalloc<float>((size_t) MAXT * 2 * ffs);
          b->sh_hq = dalloc<uint8_t>((size_t) MAXT * q8_1_bytes(ffs));
          if (!std::getenv("FNX_NO_TWIN")) {
-@@ -190,6 +304,19 @@
+@@ -190,6 +317,19 @@
              b->probe_guess = dalloc<int>((size_t) NL * MAXT * TOPK);
              b->probe_cnt = dalloc<unsigned long long>(7);
          }
@@ -743,7 +756,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
          if (c == 0 && env_flag("FNX_ROUTE_COUNT")) {
              b->route_cnt = dalloc<unsigned>((size_t) 2 * NL * NEXP);
              ck(cudaMemset(b->route_cnt, 0, (size_t) 2 * NL * NEXP * sizeof(unsigned)), "route counts");
-@@ -264,15 +391,58 @@
+@@ -264,15 +404,62 @@
              cb_[c]->att_ring.peer_in[d] = cb_[d]->att_ring.in;
          }
          // one hop for the window sums and the attention merge on 3 or more cards (FNX_ONEHOP=0: the rings); the mailboxes live in the ring's buffers
@@ -755,6 +768,10 @@ diff -ruN a/src/engine.cu b/src/engine.cu
          for (int d = 0; d < NCARD; ++d) cb_[c]->ring.peer_pk[d] = cb_[d]->ring.pk;
          cb_[c]->ring.peer = onehop && cb_[c]->ring.pk != nullptr;
      }
++    for (int c = 0; c < NCARD; ++c) {   // edge0_patch6.py (FNX_LAT_SPLIT): each card writes into the other card's mailboxes
++        cb_[c]->lxg_next = cb_[(c + 1) % NCARD]->lxg_in;
++        cb_[c]->lzs_next = cb_[(c + 1) % NCARD]->lzs_in;
++    }
      if (NCARD > 2 && env_int("FNX_ONEHOP", 1) != 0 && cb_[0]->ring.f32)
          std::fprintf(stderr, "fnx: FNX_RING_F32: the one-hop sum carries fp16 words only, the rings stay\n");
 -    // the prompt path's buffers now, so the arena below is sized from what is left after them
@@ -805,7 +822,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      // FNX_ARENA: the pool's own pages are those, or as many as every card's free VRAM holds beside the arena pool's
      // slots and FNX_ARENA_RESERVE_MIB, or FNX_ARENA_BASE_PAGES; the slots follow the own pages in the same allocation,
      // and the pool grows into them (lent coldest first) up to where every card keeps 2 MAXT TOPK slots. The buffers
-@@ -298,7 +468,7 @@
+@@ -298,7 +485,7 @@
                  ck(cudaMemGetInfo(&fr, &tot), "cudaMemGetInfo");
                  const size_t sb = ec.slot_bytes[ec.arena_pool],
                               need = (size_t) ec.n[ec.arena_pool] * sb + reserve + (size_t) (extra_pages + 1) * kvp_page(c) * sizeof(uint16_t) +
@@ -814,7 +831,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
                  if (fr < need) {   // 256 MiB more than short, so the next engine's few MiB of drift place nothing again
                      more = std::max(more, (int) ((need - fr + (256u << 20) + sb - 1) / sb));
                      short_mib = std::max(short_mib, (need - fr) >> 20);
-@@ -306,6 +476,9 @@
+@@ -306,6 +493,9 @@
              }
              if (!more) break;
              if (round == 8) throw std::runtime_error("FNX_ARENA: VRAM still short after placing the experts again 8 times");
@@ -824,7 +841,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
              // two 32 GB cards are short by design; on three or more the experts fit unless something else holds VRAM
              std::fprintf(stderr, "fnx: VRAM short by %zu MiB on a card%s: %d more of the coldest experts to RAM\n", short_mib,
                           NCARD >= 3 ? " (another process on it?)" : "", more);
-@@ -313,7 +486,7 @@
+@@ -313,7 +503,7 @@
              m.ram_extra += more;
              m.place_experts();
          }
@@ -833,7 +850,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
          for (int c = 0; c < NCARD; ++c) {
              const ExpertCache& ec = m.cards[c].ec;
              if (ec.arena_pool < 0) throw std::runtime_error("FNX_ARENA: card " + std::to_string(c) + " has no arena pool");
-@@ -335,15 +508,51 @@
+@@ -335,15 +525,51 @@
                                           " (the lanes' blocks take " + std::to_string(extra_pages) + ")");
              n_pages = (int) want;
          }
@@ -886,7 +903,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      } else {
          prefill_stages();
      }
-@@ -394,6 +603,43 @@
+@@ -394,6 +620,43 @@
      }
      for (CardBuf* b : cb_) { ck(cudaSetDevice(b->dev), "set"); ck(cudaDeviceSynchronize(), "init sync"); }
      lanes_.emplace_back();
@@ -930,7 +947,18 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      for (int i = m.arena ? arena_base_ : cb_[0]->n_pages; i-- > 0;) free_pages_.push_back(i);   // taken from the back: low pages first
      if (m.arena) {
          std::string per;
-@@ -470,8 +716,10 @@
+@@ -424,6 +687,10 @@
+         ck(cudaMemset(b.ring.in, 0, ring_in_words(MAXT) * sizeof(unsigned long long)), "ring clear");
+         ck(cudaMemset(b.ring.ag, 0, ring_ag_words(MAXT) * sizeof(unsigned long long)), "ring clear");
+         ck(cudaMemset(b.att_ring.in, 0, att_ring_words() * sizeof(unsigned long long)), "ring clear");
++        if (b.lxg_in) {   // edge0_patch6.py
++            ck(cudaMemset(b.lxg_in, 0, lat_x_words() * sizeof(unsigned long long)), "ring clear");
++            ck(cudaMemset(b.lzs_in, 0, lat_x_words() * sizeof(unsigned long long)), "ring clear");
++        }
+         if (!pf_.empty()) pf_clear_ring(c);
+     }
+     for (CardBuf* b : cb_) { ck(cudaSetDevice(b->dev), "set"); ck(cudaDeviceSynchronize(), "ring clear sync"); }
+@@ -470,8 +737,10 @@
          if (ec.pool_of[l] == p)
              for (int e = 0; e < NEXP; ++e) {
                  const size_t i = (size_t) l * NEXP + e;
@@ -943,7 +971,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
              }
      // the slots' experts in one kernel reading their host copies (a copy call each ran the cards one after another)
      std::vector<int> list{n};
-@@ -491,6 +739,222 @@
+@@ -491,6 +760,222 @@
      ck(cudaMemcpyAsync(ec.ep_dn, epd.data(), epd.size() * sizeof(char*), cudaMemcpyHostToDevice, st), "arena: tables");
  }
  
@@ -1166,7 +1194,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
  int Engine::arena_slots_for(int c, int w) const {
      const ExpertCache& ec = m_.cards[c].ec;
      const long need = (long) w * (long) (kvp_page(c) * sizeof(uint16_t)) - (long) arena_slot_off(c);
-@@ -519,7 +983,7 @@
+@@ -519,7 +1004,7 @@
      for (int l = 0; l < NL; ++l)
          if (ec.pool_of[l] == p)
              for (int e = 0; e < NEXP; ++e)
@@ -1175,7 +1203,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      std::stable_sort(out.begin(), out.end(), [&](int a, int b) { return m_.score[(size_t) a] > m_.score[(size_t) b]; });
      if (ec.arena_full && to == 0 && (int) out.size() > from)
          throw std::runtime_error("arena: " + std::to_string(out.size()) + " experts out of a slot, " + std::to_string(from) + " slots to take them");
-@@ -558,7 +1022,7 @@
+@@ -558,7 +1043,7 @@
          ck(cudaSetDevice(b.dev), "set");
          ck(cudaDeviceSynchronize(), "arena: cards idle");
          const int from = arena_slots_for(c, arena_w_), to = arena_slots_for(c, w);
@@ -1184,7 +1212,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
          arena_slots(ec, from, to, b.st);
          ck(cudaStreamSynchronize(b.st), "arena: slots");
          if (to < from) arena_refill(c, from, to);
-@@ -687,6 +1151,7 @@
+@@ -687,6 +1172,7 @@
      std::vector<int> k(lanes);
      for (int l : lanes) k.push_back(cb_[0]->lanes[(size_t) l].mrope != nullptr);
      k.push_back(cache_live());
@@ -1192,7 +1220,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      return k;
  }
  
-@@ -790,6 +1255,43 @@
+@@ -790,6 +1276,43 @@
          const int t = tok_at_cell(q);
          return t >= IMAGE_TOK ? m_.ple_image : t;
      };
@@ -1236,7 +1264,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      for (int t = 0; t < T; ++t) {
          const int p = p0 + t;
          embed_token(tok_at_cell(p), p, emb + (size_t) t * N);
-@@ -854,6 +1356,157 @@
+@@ -854,6 +1377,157 @@
      return v;
  }
  
@@ -1394,7 +1422,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
  // out[t][r] = W[r] . y[t]: the split Q8_0 kernel, or mmvq for other types
  void Engine::dense(const DW& W, const void* y, float* out, CardBuf& b, int T) {
      if (W.s.q) q8s_gemv(W.s, W.n_out, W.n_in, y, out, W.n_out, T, b.st);
-@@ -864,10 +1517,12 @@
+@@ -864,10 +1538,12 @@
  // attention, the output projection into b.bo_a
  void Engine::attention(int T, CardBuf& b, const CardW& w, const LayerW& L, uint16_t* kc, uint16_t* vc, const int* ctl,
                         uint16_t* qsa_ring, uint16_t* qsa_pooled, int call) {
@@ -1407,7 +1435,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      if (L.wq.s.q && L.wk.s.q && L.wv.s.q && L.wq.n_in == L.wk.n_in && L.wq.n_in == L.wv.n_in &&
          L.wq.n_out + L.wk.n_out + L.wv.n_out >= 8192) {   // q, k and v in one launch (compiled for 8192 rows and more)
          const Q8S ws[3] = {L.wq.s, L.wk.s, L.wv.s};
-@@ -879,8 +1534,10 @@
+@@ -879,8 +1555,10 @@
          dense(L.wk, b.xq, b.k, b, T);
          dense(L.wv, b.xq, b.v, b, T);
      }
@@ -1418,11 +1446,24 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      quantize_q8_1(b.att, b.xq, w.nq * HD, T, b.st);
      dense(L.wo, b.xq, b.bo_a, b, T);
  }
-@@ -890,44 +1547,156 @@
+@@ -890,53 +1568,197 @@
  // experts, the weighted sum across the cards into b.bo_f
  void Engine::ffn_half(int T, int call, CardBuf& b, const CardW& w, const LayerW& L, float* R, const int* ctl) {
      const int P = T * TOPK, ffs = w.ff1 - w.ff0;
 +    prof_mark(b, PK_HC);
++    const bool lat = L.lat_d.q != nullptr;   // edge0_patch.py: Edge0's latent MoE
++    if (lat && !b.xh16) throw std::runtime_error("FNX_LATENT: the latent MoE runs on the P100 row kernels only");
++    const uint16_t* gx = lat ? b.lxl16 : b.xh16;   // the gate|up kernels' rows: D's latent rows, or mixed as f16
++    const int lh = w.ff0 / (w.ff1 - w.ff0);   // edge0_patch6.py: this card's half of the groups (FNX_LAT_SPLIT), as in model.cpp
++    const auto lat_in = [&] {   // D: 8 latent rows a token (rows t * LAT_G + g), f16 for the row kernel
++        if (g_lat_split) {   // edge0_patch6.py: this card's 4 groups' rows, the other 4 from the other card
++            q8s_gemv(L.lat_d, LAT_HW, N, b.xq, b.lxl + (size_t) lh * LAT_HW, LAT_W, T, b.st);
++            lat_xg(b.lxl, b.lxl16, b.lxg_in, b.lxg_next, T, lh, (const unsigned*) (ctl + 1), call, b.ring.err, b.st);
++            return;
++        }
++        q8s_gemv(L.lat_d, LAT_W, N, b.xq, b.lxl, LAT_W, T, b.st);
++        p100_f32_f16(b.lxl, (size_t) T * LAT_W, b.lxl16, b.st);
++    };
      hc_read(R, b.bo_a, b.inj_a, L.hc_norm[1], L.hc_down[1], L.hc_up[1], L.hc_inj[1], m_.eps, b.mixed, b.inj_f, b.hcs, b.ring.err, T, b.st, b.xq);
      // the shared expert (rows P + t of part): its gate|up in the router's launch and its swiglu and down in the routed
      // gate|up's (Q4_K experts), else on the second stream (a fork and a join cost ~5 us more than the launches' blocks)
@@ -1479,11 +1520,12 @@ diff -ruN a/src/engine.cu b/src/engine.cu
 +    RouteTail rt;
 +    if (b.ekeep && lyr >= 0 && lyr < NL) rt.keep = b.ekeep + (size_t) lyr * (NEXP / 32);   // FNX_EXPERT_MASK (maska_patch.py)
 +    if (over && dma && (fold & 1)) rt.box = p100_dma_box(b.dma), rt.dev = p100_dma_dev(b.dma), rt.gu_bytes = L.gu_e_stride, rt.dn_bytes = L.down_e_stride;
-+    if (over && (fold & 2)) rt.xh = b.xh16;
++    if (over && (fold & 2) && !lat) rt.xh = b.xh16;
 +    prof_mark(b, PK_ROUTER);
      router_route(L.router, b.mixed, b.logits, T, b.topi, b.topw, b.jobs_gu, b.jobs_dn, b.njobs, b.st, plan_in_router ? &w.ec : nullptr,
 -                 lyr, b.cache_list, sh_in ? &L.sh_gu.s : nullptr, 2 * ffs, b.xq, b.sh_gu);
 +                 lyr, b.cache_list, sh_in ? &L.sh_gu.s : nullptr, 2 * ffs, b.xq, b.sh_gu, &rt);
++    if (lat) lat_rows(b.jobs_gu, b.njobs, L.lat_lab, b.st);   // edge0_patch.py: gate|up reads row t * LAT_G + label
 +    if (!sh_in && rr_order == 2) ck(cudaEventRecord(b.fork, b.st), "fork");
 +    if (!sh_in && rr_order > 0) shared_branch();
      if (const int l = lyr; l >= 0 && l < NL) {
@@ -1515,22 +1557,21 @@ diff -ruN a/src/engine.cu b/src/engine.cu
 +                ck(cudaEventRecord(b.join2, b.st3), "join2");
 +            }
 +        } else if (live) moe_cache(l, L.gu_e_stride, L.down_e_stride, w.ec, b.cache_list, b.st, plan_in_router ? nullptr : b.jobs_gu, b.njobs);
-     }
--    if (sh_in) moe_gate_up(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, b.xq, b.gu, b.st, &L.sh_down.s, ffs, b.sh_gu, b.part + (size_t) P * N);
--    else moe_gate_up(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, b.xq, b.gu, b.st);
--    moe_down(L.down_e, L.down_e_stride, b.jobs_dn, b.njobs, P, b.gu, b.part, b.st);
++    }
 +    prof_mark(b, PK_GU);
 +    if (over) {
 +        // first the experts that stayed in VRAM, while the copy runs; then wait for it, and the copied ones
-+        if (!rt.xh) p100_f32_f16(b.mixed, (size_t) T * N, b.xh16, b.st);
++        if (lat) lat_in();
++        else if (!rt.xh) p100_f32_f16(b.mixed, (size_t) T * N, b.xh16, b.st);
 +        // FNX_NOC_FILE split (IDEJE 31): the copier sends gate|up parts first, so gate|up waits for those only and down for the rest
 +        const bool split = dma && noc_mode().split;
 +        const bool split2 = dma && noc_mode().split == 2;   // perexp_patch.py: phase 2's blocks wait for their own expert's part
 +        const bool pf_wait = prefetch_ && dma && T >= prefetch_min_t_;   // FNX_PREFETCH: this layer's guessed experts, copied since the layer before
 +        if (pf_wait) (split ? p100_dma_wait2_gu : p100_dma_wait2)(b.dma, b.st);
-+        p100_moe_rows_phase(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, T, b.xh16, b.gu, 1, b.st);
++        p100_moe_rows_phase(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, T, gx, b.gu, 1, b.st);
 +        prof_mark(b, PK_DOWN);
-+        swiglu_h16(b.gu, ffs, P, b.h16, b.st);
++        if (lat) lat_swiglu_h16(b.gu, ffs, P, b.h16, b.topi, L.lat_esc, nullptr, b.st);
++        else swiglu_h16(b.gu, ffs, P, b.h16, b.st);
 +        if (pf_wait && split) p100_dma_wait2(b.dma, b.st);
 +        p100_moe_rows_phase(L.down_e, L.down_e_stride, b.jobs_dn, b.njobs, P, T, b.h16, b.part, 1, b.st);
 +        prof_mark(b, PK_CACHE);
@@ -1539,11 +1580,12 @@ diff -ruN a/src/engine.cu b/src/engine.cu
 +        else ck(cudaStreamWaitEvent(b.st, b.join2, 0), "join2 wait");
 +        prof_mark(b, PK_GU);
 +        if (split2)
-+            p100_moe_rows_phase_w(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, T, b.xh16, b.gu, 2, b.st, p100_dma_done(b.dma, 0),
++            p100_moe_rows_phase_w(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, T, gx, b.gu, 2, b.st, p100_dma_done(b.dma, 0),
 +                                  p100_dma_want_ptr(b.dma), b.cache_list, lyr, p100_dma_err_ptr(b.dma));
-+        else p100_moe_rows_phase(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, T, b.xh16, b.gu, 2, b.st);
++        else p100_moe_rows_phase(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, T, gx, b.gu, 2, b.st);
 +        prof_mark(b, PK_DOWN);
-+        p100_swiglu_after(b.gu, ffs, P, b.h16, b.cache_list, b.st);
++        if (lat) lat_swiglu_h16(b.gu, ffs, P, b.h16, b.topi, L.lat_esc, b.cache_list, b.st);
++        else p100_swiglu_after(b.gu, ffs, P, b.h16, b.cache_list, b.st);
 +        if (split && !split2) {
 +            prof_mark(b, PK_CACHE);
 +            p100_dma_wait(b.dma, b.st);
@@ -1555,15 +1597,31 @@ diff -ruN a/src/engine.cu b/src/engine.cu
 +        else p100_moe_rows_phase(L.down_e, L.down_e_stride, b.jobs_dn, b.njobs, P, T, b.h16, b.part, 2, b.st);
 +    } else if (sh_in) moe_gate_up(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, b.xq, b.gu, b.st, &L.sh_down.s, ffs, b.sh_gu, b.part + (size_t) P * N);
 +    else if (b.xh16) {
-+        p100_f32_f16(b.mixed, (size_t) T * N, b.xh16, b.st);
-+        p100_moe_rows(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, T, b.xh16, b.gu, b.st);
++        if (lat) lat_in();
++        else p100_f32_f16(b.mixed, (size_t) T * N, b.xh16, b.st);
++        p100_moe_rows(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, T, gx, b.gu, b.st);
 +    } else moe_gate_up(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, b.xq, b.gu, b.st);
 +    if (!over) prof_mark(b, PK_DOWN);
 +    if (over) {
 +    } else if (b.xh16 && !sh_in) {
-+        swiglu_h16(b.gu, ffs, P, b.h16, b.st);
++        if (lat) lat_swiglu_h16(b.gu, ffs, P, b.h16, b.topi, L.lat_esc, nullptr, b.st);
++        else swiglu_h16(b.gu, ffs, P, b.h16, b.st);
 +        p100_moe_rows(L.down_e, L.down_e_stride, b.jobs_dn, b.njobs, P, T, b.h16, b.part, b.st);
 +    } else moe_down(L.down_e, L.down_e_stride, b.jobs_dn, b.njobs, P, b.gu, b.part, b.st);
++    if (lat) {   // edge0_patch.py: the routed rows by group into z, then U (this card's ff part: the ring sums the cards)
++        lat_z(b.part, b.topi, b.topw, L.lat_lab, L.lat_esc, T, b.lz, b.st);
++        if (g_lat_split) {   // edge0_patch6.py: z of this card's groups, both cards' parts (into lxl, free since D's exchange), then its U half
++            lat_zs(b.lz, b.lxl, b.lzs_in, b.lzs_next, T, lh, (const unsigned*) (ctl + 1), call, b.ring.err, b.st);
++            quantize_q8_1(b.lxl, b.lzq, LAT_HW, T, b.st);
++            q8s_gemv(L.lat_u, N, LAT_HW, b.lzq, b.latu, N, T, b.st);
++        } else {
++            quantize_q8_1(b.lz, b.lzq, LAT_W, T, b.st);
++            q8s_gemv(L.lat_u, N, LAT_W, b.lzq, b.latu, N, T, b.st);
++        }
+     }
+-    if (sh_in) moe_gate_up(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, b.xq, b.gu, b.st, &L.sh_down.s, ffs, b.sh_gu, b.part + (size_t) P * N);
+-    else moe_gate_up(L.gu_e, L.gu_e_stride, b.jobs_gu, b.njobs, P, b.xq, b.gu, b.st);
+-    moe_down(L.down_e, L.down_e_stride, b.jobs_dn, b.njobs, P, b.gu, b.part, b.st);
 +    prof_mark(b, PK_JOIN);
      if (!sh_in) ck(cudaStreamWaitEvent(b.st, b.join, 0), "join wait");
 +    // FNX_PREFETCH: this layer's experts done with, the next layer's guessed ones take slots and the copier copies them while its
@@ -1585,7 +1643,10 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      RingMoe m;
      m.part = b.part;
      m.topw = b.topw;
-@@ -937,6 +1706,7 @@
+     m.logits = b.logits;
++    if (lat) m.lat = b.latu;   // edge0_patch.py
+     ring_sum(b.ring, b.bo_f, T, (const unsigned*) (ctl + 1), call, b.st, m);
+ }
  
  // every card's work for one window of T rows, in stream order (captured into a graph unless dumping)
  void Engine::enqueue(int T, bool dumps) {
@@ -1593,7 +1654,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      const float eps = m_.eps;
      int call = 0;
      auto each = [&](auto&& f) {
-@@ -954,7 +1724,13 @@
+@@ -954,7 +1776,13 @@
          each([&](int c, CardBuf& b, const CardW& w) {
              const LayerW& L = w.L[l];
              bool apply = pending;
@@ -1607,7 +1668,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
                  hc_write(b.R, b.bo_f, b.inj_f, T, b.st);
                  apply = false;
                  quantize_q8_1(b.ple_emb, b.xq, N, T, b.st);
-@@ -963,9 +1739,16 @@
+@@ -963,9 +1791,16 @@
                  ple_post(b.R, b.ple_key, b.ple_val, w.ple_norm_key, w.ple_norm_query, w.ple_norm_conv, w.ple_conv,
                           b.ple_hist, b.ple_hsnap, T, eps, b.st, b.ple_key + (size_t) MAXT * D);
              }
@@ -1624,7 +1685,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
                  const int nv = w.nv(), ch = w.conv_ch();
                  // ab beside qkvz in one launch (a fork and a join: ~5 us more; compiled for 4096..8191 rows)
                  if (L.qkvz.s.q && 2 * nv <= 160 && L.qkvz.n_out >= 4096 && L.qkvz.n_out < 8192) {
-@@ -978,12 +1761,15 @@
+@@ -978,12 +1813,15 @@
                      dense(L.qkvz, b.xq, b.qkvz, b, T);
                      ck(cudaStreamWaitEvent(b.st, b.join, 0), "join wait");
                  }
@@ -1640,7 +1701,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
              ring_sum(b.ring, b.bo_a, T, (const unsigned*) (b.ctl + 1), call, b.st);
          });
          ++call;
-@@ -999,10 +1785,13 @@
+@@ -999,10 +1837,13 @@
      }
      // ---- head: the final mixer (no injection) with the last write folded in, then this card's vocabulary
      each([&](int c, CardBuf& b, const CardW& w) {
@@ -1654,7 +1715,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
      dd("result_norm", -1, cb_[0]->mixed, N);
  }
  
-@@ -1034,6 +1823,11 @@
+@@ -1034,6 +1875,11 @@
                               w.ple_norm_conv, w.ple_conv, b.lanes[(size_t) lanes[r]].ple_hist, b.ple_hsnap, 1, eps, b.st,
                               b.ple_key + (size_t) MAXT * D);
              }
@@ -1666,7 +1727,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
              hc_read(b.R, apply ? b.bo_f : nullptr, b.inj_f, L.hc_norm[0], L.hc_down[0], L.hc_up[0], L.hc_inj[0], eps, b.mixed,
                      b.inj_a, b.hcs, b.ring.err, T, b.st, b.xq);
              if (!is_attn(l)) {
-@@ -1115,6 +1909,11 @@
+@@ -1115,6 +1961,11 @@
                               b.ple_key + (size_t) MAXT * D);
                  }
              }
@@ -1678,7 +1739,7 @@ diff -ruN a/src/engine.cu b/src/engine.cu
              hc_read(b.R, apply ? b.bo_f : nullptr, b.inj_f, L.hc_norm[0], L.hc_down[0], L.hc_up[0], L.hc_inj[0], eps, b.mixed,
                      b.inj_a, b.hcs, b.ring.err, T, b.st, b.xq);
              if (!is_attn(l)) {
-@@ -1347,9 +2146,33 @@
+@@ -1347,9 +2198,33 @@
              if (reqs[(size_t) i].cands && nv > 0) {
                  ck(cudaMemsetAsync(b.mtp_tk_err_l + i, 0, 4, b.st), "draft top err");
                  fnx::top_tokens(b.mtp_logits + (size_t) (off[(size_t) i] + reqs[(size_t) i].T - 1) * nv, nv, 1, mc.dv0, b.mtp_zero, b.mtp_zero, b.mtp_zero, 0,
@@ -1713,9 +1774,9 @@ diff -ruN a/src/engine.cu b/src/engine.cu
 +                 s[3], s[3] ? 100.0 * s[4] / (6.0 * s[3]) : 0.0, s[3] ? 100.0 * s[5] / (6.0 * s[3]) : 0.0);
 +}
 +}  // namespace fnx
-diff -ruN a/src/engine.hpp b/src/engine.hpp
---- a/src/engine.hpp	2026-11-13 16:22:57.788999700 +0100
-+++ b/src/engine.hpp	2026-11-13 16:23:07.595274400 +0100
+diff -ruN -x data a/src/engine.hpp b/src/engine.hpp
+--- a/src/engine.hpp	2026-11-15 06:43:51.731442800 +0100
++++ b/src/engine.hpp	2026-11-15 06:43:52.173684600 +0100
 @@ -38,6 +38,15 @@
  // Read at each call like ring_f32 (the Engine and the lab's identity record); anything else not above 1 throws
  double rope_scale();
@@ -1842,9 +1903,9 @@ diff -ruN a/src/engine.hpp b/src/engine.hpp
      };
      void prefill_pass(const std::vector<PfChunk>& chunks, bool staging, const std::function<void()>& between);
      float* pf_emb_[PF_SETS] = {};   // pinned, a set per chunk of two passes: its token embeddings and PLE rows (PF_C rows of N), (position, tag)s
-diff -ruN a/src/engine_common.cu b/src/engine_common.cu
---- a/src/engine_common.cu	2026-11-13 16:22:58.497387100 +0100
-+++ b/src/engine_common.cu	2026-11-13 16:23:08.020950100 +0100
+diff -ruN -x data a/src/engine_common.cu b/src/engine_common.cu
+--- a/src/engine_common.cu	2026-11-15 06:43:51.774844200 +0100
++++ b/src/engine_common.cu	2026-11-15 06:43:52.297965500 +0100
 @@ -1,10 +1,17 @@
  // The parts of the Engine (engine.hpp) that do not depend on the model, for every model's build: see engine_parts.hpp.
  #include "engine_parts.hpp"
@@ -2236,9 +2297,9 @@ diff -ruN a/src/engine_common.cu b/src/engine_common.cu
          }
          ck(cudaEventRecord(b.ev1, b.st), "event");
          ck(cudaMemcpyAsync(&h_.bv[c], b.mtp_bv + last, 4, cudaMemcpyDeviceToHost, b.st), "draft v");
-diff -ruN a/src/engine_impl.hpp b/src/engine_impl.hpp
---- a/src/engine_impl.hpp	2026-11-13 16:22:57.968386700 +0100
-+++ b/src/engine_impl.hpp	2026-11-13 16:23:07.813163900 +0100
+diff -ruN -x data a/src/engine_impl.hpp b/src/engine_impl.hpp
+--- a/src/engine_impl.hpp	2026-11-15 06:43:51.733474900 +0100
++++ b/src/engine_impl.hpp	2026-11-15 06:43:52.238403700 +0100
 @@ -3,6 +3,7 @@
  
  #include <cuda_runtime.h>
@@ -2259,15 +2320,21 @@ diff -ruN a/src/engine_impl.hpp b/src/engine_impl.hpp
      void* xq;   // q8_1 rows
      float *qkvz, *ab;
      float* gdn_scratch;
-@@ -41,6 +46,7 @@
+@@ -41,6 +46,13 @@
      int *topi, *njobs;
      Job *jobs_gu, *jobs_dn, *dense[MAXT + 1];
      float *gu, *part;
 +    uint16_t *xh16 = nullptr, *h16 = nullptr;   // FNX_P100_ROWS: mixed and h as FP16, for the row kernel
++    // edge0_patch.py (FNX_LATENT): D's output, its f16 rows (t * LAT_G + group), z and its q8_1, U's output [T][N]
++    float *lxl = nullptr, *lz = nullptr, *latu = nullptr;
++    uint16_t* lxl16 = nullptr;
++    uint8_t* lzq = nullptr;
++    // edge0_patch6.py (FNX_LAT_SPLIT): host mailboxes of D's half (lxg) and of z's part (lzs), written by the other card; *_next: the other card's
++    unsigned long long *lxg_in = nullptr, *lxg_next = nullptr, *lzs_in = nullptr, *lzs_next = nullptr;
      float* sh_gu;                     // the shared expert: [T][gate | up]
      void* sh_hq;                      // its h as q8_1
      float *ple_emb, *ple_key, *ple_val;
-@@ -49,6 +55,13 @@
+@@ -49,6 +61,13 @@
      float* tk_v = nullptr;
      unsigned* tk_err = nullptr;
      float* tk_par = nullptr;
@@ -2281,7 +2348,7 @@ diff -ruN a/src/engine_impl.hpp b/src/engine_impl.hpp
      float* best_v;
      int* best_i;
      unsigned long long* am_keys;      // argmax's per-row keys
-@@ -142,6 +155,7 @@
+@@ -142,6 +161,7 @@
      // commit waits on it before writing that copy again
      cudaEvent_t commit_ev = nullptr, rows_commit_ev = nullptr;
      unsigned* route_cnt = nullptr;   // FNX_ROUTE_COUNT, card 0: [decode | prompt][NL][NEXP] picks
@@ -2289,7 +2356,7 @@ diff -ruN a/src/engine_impl.hpp b/src/engine_impl.hpp
      unsigned* route_trace = nullptr;              // FNX_ROUTE_TRACE=M, card 0, mapped host memory: decode's picks in order (M million)
      unsigned long long* route_trace_len = nullptr;
      unsigned long long route_trace_cap = 0;
-@@ -151,6 +165,16 @@
+@@ -151,6 +171,16 @@
      float* probe_logits = nullptr;
      int* probe_guess = nullptr;
      unsigned long long* probe_cnt = nullptr;
@@ -2306,7 +2373,7 @@ diff -ruN a/src/engine_impl.hpp b/src/engine_impl.hpp
  };
  
  // what engine_common.cu reads of this model (engine_parts.hpp says what each is)
-@@ -191,4 +215,16 @@
+@@ -191,4 +221,16 @@
  std::vector<std::pair<char*, size_t>> state_pieces(CardBuf& b, const CardW& w, bool mtp, int pos, bool kv, unsigned hist_half,
                                                     const std::vector<int>& pages);
  
@@ -2323,9 +2390,9 @@ diff -ruN a/src/engine_impl.hpp b/src/engine_impl.hpp
 +void pf_prof_report(int rows);
 +
  }  // namespace fnx
-diff -ruN a/src/engine_parts.hpp b/src/engine_parts.hpp
---- a/src/engine_parts.hpp	2026-11-13 16:22:58.455501500 +0100
-+++ b/src/engine_parts.hpp	2026-11-13 16:23:07.771115400 +0100
+diff -ruN -x data a/src/engine_parts.hpp b/src/engine_parts.hpp
+--- a/src/engine_parts.hpp	2026-11-15 06:43:51.776859900 +0100
++++ b/src/engine_parts.hpp	2026-11-15 06:43:52.222341900 +0100
 @@ -52,7 +52,8 @@
  #endif
  
@@ -2344,9 +2411,9 @@ diff -ruN a/src/engine_parts.hpp b/src/engine_parts.hpp
      return (T*) p;
  }
  
-diff -ruN a/src/gdn_core.cuh b/src/gdn_core.cuh
---- a/src/gdn_core.cuh	2026-11-13 16:22:58.214836500 +0100
-+++ b/src/gdn_core.cuh	2026-11-13 16:23:07.978801700 +0100
+diff -ruN -x data a/src/gdn_core.cuh b/src/gdn_core.cuh
+--- a/src/gdn_core.cuh	2026-11-15 06:43:51.741035700 +0100
++++ b/src/gdn_core.cuh	2026-11-15 06:43:52.279128700 +0100
 @@ -4,8 +4,10 @@
  // hist: [2 parities][3][ch]; this window reads parity tag & 1 and writes the other (the head's q/k channels are read by
  // its three value heads' blocks, so only block 0 of the head with s == 0 writes them, into the other buffer).
@@ -2445,10 +2512,10 @@ diff -ruN a/src/gdn_core.cuh b/src/gdn_core.cuh
      }
      // ---- the head's last block: gated RMS norm and q8_1 for all HS columns
      __shared__ bool last;
-diff -ruN a/src/gguf.cpp b/src/gguf.cpp
---- a/src/gguf.cpp	2026-11-13 16:22:57.807589900 +0100
-+++ b/src/gguf.cpp	2026-11-13 16:23:07.726577100 +0100
-@@ -35,9 +35,11 @@
+diff -ruN -x data a/src/gguf.cpp b/src/gguf.cpp
+--- a/src/gguf.cpp	2026-11-15 06:43:51.864817300 +0100
++++ b/src/gguf.cpp	2026-11-15 06:43:52.213627500 +0100
+@@ -35,11 +35,16 @@
          case T_Q5_K: return {256, 176};
          case T_Q6_K: return {256, 210};
          case T_IQ4_NL: return {32, 18};
@@ -2459,14 +2526,28 @@ diff -ruN a/src/gguf.cpp b/src/gguf.cpp
 +        case T_IQ1_M: return {256, 56};
          case T_IQ4_XS: return {256, 136};
          case T_Q2_0: return {64, 18};
++        case T_I8: return {1, 1};
++        case T_I32: return {1, 4};
++        case T_NVFP4: return {64, 36};   // edge0_patch.py: 4 UE4M3 scales (one a 16 values), 32 bytes of e2m1 codes
      }
-@@ -118,11 +120,14 @@
+     throw std::runtime_error("gguf: unknown ggml type " + std::to_string(t));
+ }
+@@ -108,6 +113,7 @@
+     } else {
+         load_shard(first, true);
+     }
++    if (const char* d = std::getenv("FNX_LATENT")) add_latent(d);   // edge0_patch.py
+     convert_small_tensors();
+ }
+ 
+@@ -118,11 +124,15 @@
  void Gguf::convert_small_tensors() {
      bool mixed = false;
      for (const auto& kv : tensors_)
 -        mixed |= kv.second.type == T_IQ2_S || kv.second.type == T_IQ3_XXS || kv.second.type == T_IQ3_S || kv.second.type == T_Q2_0;
 +        mixed |= kv.second.type == T_IQ2_S || kv.second.type == T_IQ3_XXS || kv.second.type == T_IQ3_S || kv.second.type == T_Q2_0 ||
 +                 kv.second.type == T_IQ2_XXS || kv.second.type == T_IQ1_M;
++    mixed |= latent_;   // edge0_patch.py: Edge0's skeleton keeps ISTA's BF16 tensors (the same bytes): converted as there
      if (!mixed) return;
      for (auto& kv : tensors_) {
          Tensor& t = kv.second;
@@ -2477,10 +2558,79 @@ diff -ruN a/src/gguf.cpp b/src/gguf.cpp
              owned_.emplace_back();
              conv::repack_q2_0_to_q4_0(t, owned_.back());
              ++converted_;
-diff -ruN a/src/gguf.hpp b/src/gguf.hpp
---- a/src/gguf.hpp	2026-11-13 16:22:58.439391000 +0100
-+++ b/src/gguf.hpp	2026-11-13 16:23:07.628943600 +0100
-@@ -22,8 +22,8 @@
+@@ -137,6 +147,68 @@
+     std::fprintf(stderr, "gguf: %d dense/small tensors converted to Q8_0/F32 at load (the file's routed experts keep their types)\n", converted_);
+ }
+ 
++// ---- FNX_LATENT (edge0_patch.py): Edge0-145B's latent MoE (VODNIK-edge0.md). The skeleton GGUF holds every tensor but the routed
++// experts and the n-gram table; these come from the folder:
++//   experts.bin          layer l at l * 512 * 1935376, expert e at + e * 1935376: [gate 640 x 1008 B | up | down 1792 x 360 B |
++//                        16 B: the gate, up and down output scales, 0], NVFP4 -> blk.l.lat_exps (I8 [1935376][512])
++//   latent_dense_q8.bin  layer l: D [8 x 1792 rows][2560] then U [8 x 2560 rows][1792], Q8_0 -> blk.l.lat_d, blk.l.lat_u
++//   labels.bin           int32 [48][512], each expert's group -> lat_labels
++// and the n-gram table from FNX_LATENT_PLE (default ISTA's shard 2, the same table: VODNIK). blk.l.ffn_{gate,up,down}_exps.weight
++// are added as shapes only (no file, no data): the placement code reads their sizes; the experts themselves come from lat_exps.
++int Gguf::map_raw(const std::string& path, size_t want) {
++    Map mp;
++    mp.path = path;
++    mp.fd = open(path.c_str(), O_RDONLY);
++    if (mp.fd < 0) throw std::runtime_error("FNX_LATENT: cannot open " + path);
++    struct stat st;
++    fstat(mp.fd, &st);
++    mp.size = (size_t) st.st_size;
++    if (mp.size != want)
++        throw std::runtime_error("FNX_LATENT: " + path + " is " + std::to_string(mp.size) + " bytes, not the " + std::to_string(want));
++    mp.base = mmap(nullptr, mp.size, PROT_READ, MAP_SHARED, mp.fd, 0);
++    if (mp.base == MAP_FAILED) throw std::runtime_error("FNX_LATENT: cannot map " + path);
++    maps_.push_back(mp);
++    return (int) maps_.size() - 1;
++}
++
++void Gguf::add_latent(const std::string& dir) {
++    constexpr int NLY = 48, NE = 512, ELL = 1792, FFW = 640, H = 2560, G = 8;
++    constexpr size_t BLOB = 1935376, LAYER = (size_t) NE * BLOB, GU_ROW = ELL / 64 * 36, DN_ROW = FFW / 64 * 36;
++    constexpr size_t DB = (size_t) G * ELL * (H / 32) * 34, UB = (size_t) G * H * (ELL / 32) * 34;
++    static_assert(2 * FFW * GU_ROW + ELL * DN_ROW + 16 == BLOB, "Edge0's NVFP4 expert blob");
++    latent_ = true;
++    if (!tensors_.count("per_layer_token_embd.weight")) {
++        const char* ple = std::getenv("FNX_LATENT_PLE");
++        load_shard(ple ? ple : "/srv/llm/strata/models/iq3_s/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00002-of-00002.gguf", false);
++    }
++    auto add = [&](const std::string& name, uint32_t type, std::vector<int64_t> ne, int shard, uint64_t off, size_t bytes) {
++        Tensor t;
++        t.name = name;
++        t.type = type;
++        t.n_dims = (int) ne.size();
++        for (size_t d = 0; d < ne.size(); ++d) t.ne[d] = ne[d];
++        t.shard = shard;
++        t.offset = off;
++        t.nbytes = bytes;
++        t.data = shard >= 0 ? (const uint8_t*) maps_[(size_t) shard].base + off : nullptr;
++        if (!tensors_.emplace(name, t).second) throw std::runtime_error("FNX_LATENT: " + name + " is in the skeleton already");
++    };
++    const int se = map_raw(dir + "/experts.bin", NLY * LAYER);
++    const int sd = map_raw(dir + "/latent_dense_q8.bin", NLY * (DB + UB));
++    const int sl = map_raw(dir + "/labels.bin", (size_t) NLY * NE * 4);
++    for (int l = 0; l < NLY; ++l) {
++        const std::string b = "blk." + std::to_string(l) + ".";
++        add(b + "lat_exps", T_I8, {(int64_t) BLOB, NE}, se, l * LAYER, LAYER);
++        add(b + "lat_d", T_Q8_0, {H, G * ELL}, sd, l * (DB + UB), DB);
++        add(b + "lat_u", T_Q8_0, {ELL, G * H}, sd, l * (DB + UB) + DB, UB);
++        add(b + "ffn_gate_exps.weight", T_NVFP4, {ELL, FFW, NE}, -1, 0, (size_t) NE * FFW * GU_ROW);
++        add(b + "ffn_up_exps.weight", T_NVFP4, {ELL, FFW, NE}, -1, 0, (size_t) NE * FFW * GU_ROW);
++        add(b + "ffn_down_exps.weight", T_NVFP4, {FFW, ELL, NE}, -1, 0, (size_t) NE * ELL * DN_ROW);
++    }
++    add("lat_labels", T_I32, {NE, NLY}, sl, 0, (size_t) NLY * NE * 4);
++    std::fprintf(stderr, "gguf: FNX_LATENT %s: Edge0's latent experts (NVFP4), D/U (Q8_0) and labels beside the skeleton\n", dir.c_str());
++}
++
+ Gguf::~Gguf() {
+     for (Map& mp : maps_) {
+         if (mp.base) munmap(mp.base, mp.size);
+diff -ruN -x data a/src/gguf.hpp b/src/gguf.hpp
+--- a/src/gguf.hpp	2026-11-15 06:43:51.749637600 +0100
++++ b/src/gguf.hpp	2026-11-15 06:43:52.183751800 +0100
+@@ -22,8 +22,9 @@
  
  enum GgmlType : uint32_t {
      T_F32 = 0, T_F16 = 1, T_Q4_0 = 2, T_Q4_1 = 3, T_Q5_0 = 6, T_Q5_1 = 7, T_Q8_0 = 8, T_Q8_1 = 9, T_Q2_K = 10,
@@ -2488,12 +2638,34 @@ diff -ruN a/src/gguf.hpp b/src/gguf.hpp
 -    T_IQ4_XS = 23, T_BF16 = 30, T_Q2_0 = 42,   // 42: Strata's 64-value 2-bit blocks (not in llama.cpp)
 +    T_Q3_K = 11, T_Q4_K = 12, T_Q5_K = 13, T_Q6_K = 14, T_Q8_K = 15, T_IQ2_XXS = 16, T_IQ3_XXS = 18, T_IQ4_NL = 20, T_IQ3_S = 21, T_IQ2_S = 22,
 +    T_IQ4_XS = 23, T_IQ1_M = 29, T_BF16 = 30, T_Q2_0 = 42,   // 42: Strata's 64-value 2-bit blocks (not in llama.cpp)
++    T_I8 = 24, T_I32 = 26, T_NVFP4 = 40,   // edge0_patch.py: Edge0's expert blobs and labels (FNX_LATENT), its NVFP4 experts
  };
  
  struct TypeInfo {
-diff -ruN a/src/hc.cuh b/src/hc.cuh
---- a/src/hc.cuh	2026-11-13 16:22:57.834435400 +0100
-+++ b/src/hc.cuh	2026-11-13 16:23:07.861554100 +0100
+@@ -66,7 +67,8 @@
+ #endif
+     const std::map<std::string, Tensor>& tensors() const { return tensors_; }
+     int shards() const { return (int) maps_.size(); }
+-    int converted() const { return converted_; }   // tensors re-quantized at load (0 for every file the engine reads as it is)
++    int converted() const { return converted_; }
++    bool latent() const { return latent_; }   // FNX_LATENT (edge0_patch.py): Edge0's latent experts beside its skeleton GGUF   // tensors re-quantized at load (0 for every file the engine reads as it is)
+     const std::string& shard_path(int s) const { return maps_[(size_t) s].path; }
+     size_t shard_size(int s) const { return maps_[(size_t) s].size; }
+     const uint8_t* shard_base(int s) const { return (const uint8_t*) maps_[(size_t) s].base; }
+@@ -87,6 +89,10 @@
+     int converted_ = 0;
+     void load_shard(const std::string& path, bool meta);
+     void convert_small_tensors();
++    // FNX_LATENT (edge0_patch.py): the files of Edge0's latent MoE as tensors of this file (see gguf.cpp)
++    bool latent_ = false;
++    int map_raw(const std::string& path, size_t want);
++    void add_latent(const std::string& dir);
+ };
+ 
+ // Reads groups of tensors (a layer's, say) into host buffers ahead of the threads that slice them, in the order they
+diff -ruN -x data a/src/hc.cuh b/src/hc.cuh
+--- a/src/hc.cuh	2026-11-15 06:43:51.868021800 +0100
++++ b/src/hc.cuh	2026-11-15 06:43:52.248530800 +0100
 @@ -1,27 +1,28 @@
 -// The hyper-connection read (build_hc_mix) in one launch of H_NS * H_RG = 80 blocks' work, with two grid barriers
 +// The hyper-connection read (build_hc_mix) in one launch of H_NS * H_RG = 56 blocks' work, with two grid barriers
@@ -2831,9 +3003,9 @@ diff -ruN a/src/hc.cuh b/src/hc.cuh
  }
  
  }  // namespace
-diff -ruN a/src/iq3s_x.cuh b/src/iq3s_x.cuh
+diff -ruN -x data a/src/iq3s_x.cuh b/src/iq3s_x.cuh
 --- a/src/iq3s_x.cuh	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/iq3s_x.cuh	2026-11-13 16:23:08.039056700 +0100
++++ b/src/iq3s_x.cuh	2026-11-15 06:43:52.307098200 +0100
 @@ -0,0 +1,41 @@
 +// iq3s_x.cuh: ggml's vec_dot_iq3_s_q8_1 (ggml-cuda/vecdotq.cuh) with its two ggml_cuda_dp4a calls a step in p100_compat.h's
 +// xmad form (fnx_dp4a_xmad); nothing else differs (gen_iq3s_x.sh makes it from that file; idea 67, moe_x_patch.py). On sm_60
@@ -2876,9 +3048,9 @@ diff -ruN a/src/iq3s_x.cuh b/src/iq3s_x.cuh
 +    const float d = __half2float(bq3->d) * __low2float(bq8_1[iqs/2].ds);
 +    return d * sumi;
 +}
-diff -ruN a/src/kernels.cu b/src/kernels.cu
---- a/src/kernels.cu	2026-11-13 16:22:58.279563800 +0100
-+++ b/src/kernels.cu	2026-11-13 16:23:07.894010300 +0100
+diff -ruN -x data a/src/kernels.cu b/src/kernels.cu
+--- a/src/kernels.cu	2026-11-15 06:43:51.752177800 +0100
++++ b/src/kernels.cu	2026-11-15 06:43:52.253222800 +0100
 @@ -13,6 +13,9 @@
  #include <cstring>
  #include <stdexcept>
@@ -2976,7 +3148,19 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
      float s[T];
  #pragma unroll
      for (int t = 0; t < T; ++t) {
-@@ -1105,14 +1140,41 @@
+@@ -874,8 +909,11 @@
+ __device__ __forceinline__ float ring_x(const float* x, const RingMoe& m, int T, int t, int i) {
+     if (!m.part) return x[(size_t) t * N + i];
+     float s = 0.f;
++    if (m.lat) s = m.lat[(size_t) t * N + i];   // edge0_patch.py
++    else {
+ #pragma unroll
+     for (int k = 0; k < TOPK; ++k) s = fmaf(m.topw[t * TOPK + k], m.part[((size_t) t * TOPK + k) * N + i], s);
++    }
+     return fmaf(sigm(m.logits[(size_t) t * (NEXP + 1) + NEXP]), m.part[((size_t) T * TOPK + t) * N + i], s);
+ }
+ __device__ __forceinline__ float2 ring_x2(const float* x, const RingMoe& m, int T, int t, int p) {
+@@ -1105,14 +1143,41 @@
  }
  
  namespace {
@@ -3021,7 +3205,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
  void gemv_f32(const float* W, const float* x, float* y, int rows, int n, int T, void* st) {
      if (n != N) throw std::runtime_error("gemv_f32: rows of N columns only");
      cudaStream_t s = (cudaStream_t) st;
-@@ -1140,7 +1202,13 @@
+@@ -1140,7 +1205,13 @@
  
  #endif
  #if FNX_KPART == 3
@@ -3036,7 +3220,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
  
  // FNX_HC1=R: windows of up to R rows (at most 8) take k_hc's one-barrier form (default 3: kbench 1-2 us faster a read at
  // 1-3 rows, the same at 4-5, slower at 8). Read once; the engine reads it when made, so a bad value fails at start
-@@ -1181,6 +1249,7 @@
+@@ -1181,6 +1252,7 @@
      if (sms <= 0) throw std::runtime_error("hc_prepare: card " + std::to_string(dev) + " reports " + std::to_string(sms) + " SMs");
      if (cap < 0 || cap > H_BLOCKS) throw std::runtime_error("hc_prepare: cap 1.." + std::to_string(H_BLOCKS) + " (0: none), got " + std::to_string(cap));
      hc_grid_[dev] = std::min(sms, cap ? cap : H_BLOCKS);
@@ -3044,7 +3228,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
  #if FNX_HIP
      // FNX_HC_GRID=n (screen): n blocks of the read resident at once instead of one per multiprocessor. An R9700 reports 32 (one per WGP of two CUs), so the 80 blocks of work
      // ran in 2-3 turns each; several blocks fit one WGP, and a barrier that waits too long sets err bit 4 rather than hang
-@@ -1201,30 +1270,37 @@
+@@ -1201,30 +1273,37 @@
      a.part = scratch;
      a.ssp = a.part + (size_t) H_NS * T * H_ROWS;
      a.loq = (int8_t*) (a.ssp + (size_t) T * H_NS);
@@ -3100,7 +3284,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
          default: throw std::runtime_error("hc_read: T out of range");
      }
      ck_launch("hc_read");
-@@ -1305,13 +1381,72 @@
+@@ -1305,13 +1384,72 @@
      ck_launch("qsa_index");
  }
  
@@ -3174,7 +3358,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
      ck_launch("qsa_select");
  }
  
-@@ -1375,11 +1510,16 @@
+@@ -1375,11 +1513,16 @@
          ck_launch("qsa");
          return;
      }
@@ -3193,7 +3377,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
  size_t attn_scratch_floats(int) { return (size_t) ATT_ROWS * NQH * ATT_SPLITS * (HD + 2) + (size_t) ATT_ROWS * NQH * (HD + 2); }
  size_t att_ring_words() { return (size_t) 2 * (NCARD - 1) * ATT_ROWS * ATT_OWN * (HD + 2); }
  int attn_rows() { return ATT_ROWS; }
-@@ -1395,8 +1535,13 @@
+@@ -1395,8 +1538,13 @@
      const __half* kc = reinterpret_cast<const __half*>(kc16);
      const __half* vc = reinterpret_cast<const __half*>(vc16);
      cudaStream_t s = (cudaStream_t) st;
@@ -3209,7 +3393,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
      if (ar.onehop) k_att_merge_a2a<<<dim3(ATT_OWN, T), HD, 0, s>>>(ar, qg, part, out, T, tag, call);
      else k_att_merge<<<dim3(ATT_OWN, T), HD, 0, s>>>(ar, qg, part, out, T, tag, call);
      ck_launch("attn");
-@@ -1429,9 +1574,15 @@
+@@ -1429,9 +1577,15 @@
  void attn_prompt(const float* qg, const uint16_t* kc, const uint16_t* vc, const KvPages& g, const int* pos0, const int* cells,
                   const int* n_cells, int card, int C, int r0, int T, float* part, void* st) {
      if (T == 0) return;   // an empty half of a one-row chunk
@@ -3225,7 +3409,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
      ck_launch("attn_prompt");
  }
  
-@@ -1599,10 +1750,11 @@
+@@ -1599,10 +1753,11 @@
  }
  
  void top_tokens(float* logits, int n, int T, int v0, const int* pen_tok, const int* pen_cnt, const int* pen_n, int pen_stride,
@@ -3239,7 +3423,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
      ck_launch("top_tokens");
  }
  
-@@ -1663,6 +1815,30 @@
+@@ -1663,6 +1818,30 @@
      k_hc_write<<<dim3((D + 255) / 256, T), 256, 0, (cudaStream_t) st>>>(R, bo, inj);
      ck_launch("hc_write");
  }
@@ -3270,7 +3454,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
  }  // namespace fnx
  
  namespace fnx {
-@@ -2042,10 +2218,24 @@
+@@ -2042,10 +2221,140 @@
  
  namespace fnx {
  #if FNX_KPART == 8
@@ -3287,6 +3471,122 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
 +    k_expert_mask<<<(rows * NEXP + 255) / 256, 256, 0, (cudaStream_t) st>>>(logits, rows, stride, keep);
 +    ck_launch("expert_mask_logits");
 +}
++// ---- edge0_patch.py: Edge0's latent MoE (FNX_LATENT). A marked job (w = ~expert, the cache's phase 2) keeps its expert in ~w.
++template <typename J>
++__global__ void k_lat_rows(J* jobs, const int* njobs, const int* lab) {
++    for (int j = blockIdx.x; j < njobs[0]; j += gridDim.x) {
++        J& b = jobs[j];
++        const int g = lab[b.w >= 0 ? b.w : ~b.w];
++        for (int k = threadIdx.x; k < b.n; k += blockDim.x) b.y[k] = b.y[k] * LAT_G + g;
++    }
++}
++void lat_rows(Job* jobs_gu, const int* njobs, const int* labels, void* st) {
++    k_lat_rows<Job><<<MAXT * TOPK, 32, 0, (cudaStream_t) st>>>(jobs_gu, njobs, labels);
++    ck_launch("lat_rows");
++}
++void lat_bigrows(BigJob* jobs_gu, const int* njobs, int njobs_cap, const int* labels, void* st) {
++    k_lat_rows<BigJob><<<std::max(1, std::min(njobs_cap, 1024)), 64, 0, (cudaStream_t) st>>>(jobs_gu, njobs, labels);
++    ck_launch("lat_bigrows");
++}
++__global__ void k_lat_swiglu(const float* __restrict__ gu, int ffs, int P, __half* __restrict__ h, const int* __restrict__ topi,
++                             const float* __restrict__ esc, const int* __restrict__ list) {
++    if (list && list[0] == 0) return;
++    for (size_t e = blockIdx.x * (size_t) blockDim.x + threadIdx.x; e < (size_t) P * ffs; e += (size_t) gridDim.x * blockDim.x) {
++        const size_t r = e / ffs, i = e % ffs;
++        const float* sc = esc + (size_t) topi[r] * 4;
++        const float g = sc[0] * gu[r * 2 * ffs + i];
++        h[e] = __float2half(g / (1.0f + __expf(-g)) * (sc[1] * gu[r * 2 * ffs + ffs + i]));
++    }
++}
++void lat_swiglu_h16(const float* gu, int ffs, int P, uint16_t* h16, const int* topi, const float* esc, const int* list, void* st) {
++    k_lat_swiglu<<<(unsigned) std::min<size_t>(4096, ((size_t) P * ffs + 255) / 256), 256, 0, (cudaStream_t) st>>>(
++        gu, ffs, P, reinterpret_cast<__half*>(h16), topi, esc, list);
++    ck_launch("lat_swiglu_h16");
++}
++// z[t][g][c] = sum over row t's picks k in group g of topw[t][k] * s_down[e] * part[t * TOPK + k][c] (down's rows of LAT_ELL)
++template <typename O>
++__global__ void k_lat_z(const float* __restrict__ part, const int* __restrict__ topi, const float* __restrict__ topw,
++                        const int* __restrict__ lab, const float* __restrict__ esc, O* __restrict__ z) {
++    const int t = blockIdx.y, j = blockIdx.x * blockDim.x + threadIdx.x;
++    if (j >= LAT_W) return;
++    const int g = j / LAT_ELL, c = j % LAT_ELL;
++    float s = 0.f;
++#pragma unroll
++    for (int k = 0; k < TOPK; ++k) {
++        const int e = topi[t * TOPK + k];
++        if (lab[e] == g) s = fmaf(topw[t * TOPK + k] * esc[(size_t) e * 4 + 2], part[((size_t) t * TOPK + k) * LAT_ELL + c], s);
++    }
++    if constexpr (sizeof(O) == 2) z[(size_t) t * LAT_W + j] = __float2half(s);
++    else z[(size_t) t * LAT_W + j] = s;
++}
++void lat_z(const float* part, const int* topi, const float* topw, const int* labels, const float* esc, int T, float* z, void* st) {
++    k_lat_z<float><<<dim3(LAT_W / 256, T), 256, 0, (cudaStream_t) st>>>(part, topi, topw, labels, esc, z);
++    ck_launch("lat_z");
++}
++void lat_z16(const float* part, const int* topi, const float* topw, const int* labels, const float* esc, int T, uint16_t* z, void* st) {
++    k_lat_z<__half><<<dim3(LAT_W / 256, T), 256, 0, (cudaStream_t) st>>>(part, topi, topw, labels, esc, reinterpret_cast<__half*>(z));
++    ck_launch("lat_z16");
++}
++// ---- edge0_patch6.py (FNX_LAT_SPLIT): the latent halves' exchanges in a window, k_ring's words (two f16 values and the tag)
++constexpr int LAT_HP = LAT_HW / 2;   // pairs of a half row
++size_t lat_x_words() { return (size_t) 2 * MAXT * LAT_HP; }
++__device__ __forceinline__ void lat_put(unsigned long long* p, float a, float b, unsigned tag) {
++    const __half2 h = __floats2half2_rn(a, b);
++    *(volatile unsigned long long*) p = (unsigned long long) *reinterpret_cast<const unsigned*>(&h) | ((unsigned long long) tag << 32);
++}
++__device__ __forceinline__ float2 lat_take(const unsigned long long* p, unsigned tag, unsigned* err) {
++    const long long t0 = clock64();
++    unsigned long long w;
++    for (;;) {
++        w = *(const volatile unsigned long long*) p;
++        if ((unsigned) (w >> 32) == tag) break;
++        if (clock64() - t0 > 4000000000LL) { atomicOr(err, 1u); break; }
++    }
++    const unsigned lo = (unsigned) w;
++    return __half22float2(*reinterpret_cast<const __half2*>(&lo));
++}
++// ZS false: x's half h to f16 in out (xl16) and to the other card, the other half from the mailbox into out. ZS true: x's (z's) other half
++// to the other card, then out (zh) = this card's half plus the other card's part. Every word out first: the other card waits for them
++template <bool ZS>
++__global__ void k_lat_x(const float* __restrict__ x, void* __restrict__ out, unsigned long long* in, unsigned long long* next, int T, int h,
++                        const unsigned* tagp, int call, unsigned* err) {
++    const unsigned tag = *tagp * 256u + (unsigned) call + 1u;
++    const size_t set = (size_t) (tag & 1u) * MAXT * LAT_HP;
++    in += set;
++    next += set;
++    const int n = gridDim.x * blockDim.x, tid = blockIdx.x * blockDim.x + threadIdx.x;
++    const int own = h * LAT_HW, oth = (1 - h) * LAT_HW;
++    for (int e = tid; e < T * LAT_HP; e += n) {
++        const int t = e / LAT_HP, i = e % LAT_HP;
++        const float2 v = reinterpret_cast<const float2*>(x + (size_t) t * LAT_W + (ZS ? oth : own))[i];
++        lat_put(next + e, v.x, v.y, tag);
++        if constexpr (!ZS) reinterpret_cast<__half2*>((__half*) out + (size_t) t * LAT_W + own)[i] = __floats2half2_rn(v.x, v.y);
++    }
++    for (int e = tid; e < T * LAT_HP; e += n) {
++        const int t = e / LAT_HP, i = e % LAT_HP;
++        const float2 a = lat_take(in + e, tag, err);
++        if constexpr (ZS) {
++            const float2 o = reinterpret_cast<const float2*>(x + (size_t) t * LAT_W + own)[i];
++            reinterpret_cast<float2*>((float*) out + (size_t) t * LAT_HW)[i] = make_float2(o.x + a.x, o.y + a.y);
++        } else {
++            reinterpret_cast<__half2*>((__half*) out + (size_t) t * LAT_W + oth)[i] = __floats2half2_rn(a.x, a.y);
++        }
++    }
++}
++void lat_xg(const float* x, uint16_t* xl16, unsigned long long* in, unsigned long long* next, int T, int h, const unsigned* tag, int call,
++            unsigned* err, void* st) {
++    ring_call_check(call, "lat_xg");
++    if (T < 1 || T > MAXT || !in || !next) throw std::runtime_error("lat_xg: rows or mailboxes");
++    k_lat_x<false><<<std::max(4, std::min(40, (T * LAT_HP + 255) / 256)), 256, 0, (cudaStream_t) st>>>(x, xl16, in, next, T, h, tag, call, err);
++    ck_launch("lat_xg");
++}
++void lat_zs(const float* z, float* zh, unsigned long long* in, unsigned long long* next, int T, int h, const unsigned* tag, int call,
++            unsigned* err, void* st) {
++    ring_call_check(call, "lat_zs");
++    if (T < 1 || T > MAXT || !in || !next) throw std::runtime_error("lat_zs: rows or mailboxes");
++    k_lat_x<true><<<std::max(4, std::min(40, (T * LAT_HP + 255) / 256)), 256, 0, (cudaStream_t) st>>>(z, zh, in, next, T, h, tag, call, err);
++    ck_launch("lat_zs");
++}
 +void router_route(const uint16_t* W, const float* x, float* logits, int T, int* topi, float* topw, Job* jobs_gu, Job* jobs_dn,
                    int* njobs, void* st, const ExpertCache* ec, int layer, int* list, const Q8S* sh_gu, int sh_rows, const void* sh_y,
 -                  float* sh_out) {
@@ -3297,7 +3597,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
      ShexpUp su;
      if (sh_gu) {
          if (sh_rows < 1 || sh_rows >= 4096) throw std::runtime_error("router_route: the shared gate|up takes 1..4095 rows");
-@@ -2057,11 +2247,17 @@
+@@ -2057,11 +2366,17 @@
          twin_of(sh_y, N, tq, td);
          su.tq = tq, su.td = td;
      }
@@ -3317,7 +3617,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
      switch (T) {
          case 1: FNX_RR(1); break;
          case 2: FNX_RR(2); break;
-@@ -2085,6 +2281,49 @@
+@@ -2085,6 +2400,49 @@
      ck_launch("router_route");
  }
  
@@ -3367,7 +3667,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
  #endif
  #if FNX_KPART == 2
  namespace {
-@@ -2107,6 +2346,8 @@
+@@ -2107,6 +2465,8 @@
          case T_IQ3_S: moe_launch<GGML_TYPE_IQ3_S>(down, w, jobs, njobs, njobs_max, in, (float*) out, s, T); break;
          case T_IQ3_XXS: moe_launch<GGML_TYPE_IQ3_XXS>(down, w, jobs, njobs, njobs_max, in, (float*) out, s, T); break;
          case T_IQ2_S: moe_launch<GGML_TYPE_IQ2_S>(down, w, jobs, njobs, njobs_max, in, (float*) out, s, T); break;
@@ -3376,7 +3676,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
          default: throw std::runtime_error("moe: expert type " + std::to_string(A.type) + " not handled");
      }
      ck_launch(down ? "moe_down" : "moe_gate_up");
-@@ -2168,6 +2409,8 @@
+@@ -2168,6 +2528,8 @@
          case T_IQ3_S: moe_launch_big<GGML_TYPE_IQ3_S>(down, w, jobs, njobs, njobs_cap, in, (float*) out, s); break;
          case T_IQ3_XXS: moe_launch_big<GGML_TYPE_IQ3_XXS>(down, w, jobs, njobs, njobs_cap, in, (float*) out, s); break;
          case T_IQ2_S: moe_launch_big<GGML_TYPE_IQ2_S>(down, w, jobs, njobs, njobs_cap, in, (float*) out, s); break;
@@ -3385,7 +3685,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
          default: throw std::runtime_error("moe: expert type " + std::to_string(A.type) + " not handled");
      }
      ck_launch(down ? "moe_down (big jobs)" : "moe_gate_up (big jobs)");
-@@ -2233,16 +2476,82 @@
+@@ -2233,16 +2595,82 @@
      if (tq) q8s_launch<R, true, SEG>(g, rows, cols, y, tq, td, T, s);
      else q8s_launch<R, false, SEG>(g, rows, cols, y, nullptr, nullptr, T, s);
  }
@@ -3471,7 +3771,7 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
      } else {
  #if FNX_27B
          // up to 4 rows by the window (the 27B's windows, bin/s27_run S27_BENCH=1: 1 row 19.4 -> 18.3 ms, 4 rows
-@@ -2251,7 +2560,22 @@
+@@ -2251,7 +2679,22 @@
          else if (T <= 4) q8s_launch<1, SEG>(g, rows, cols, yq, T, s);
          else if (rows >= 8192) q8s_launch<4, SEG>(g, rows, cols, yq, T, s);
  #else
@@ -3495,9 +3795,9 @@ diff -ruN a/src/kernels.cu b/src/kernels.cu
  #endif
          else if (rows >= 4096) q8s_launch<2, SEG>(g, rows, cols, yq, T, s);
          else q8s_launch<1, SEG>(g, rows, cols, yq, T, s);
-diff -ruN a/src/kernels.hpp b/src/kernels.hpp
---- a/src/kernels.hpp	2026-11-13 16:22:58.228922500 +0100
-+++ b/src/kernels.hpp	2026-11-13 16:23:07.608811100 +0100
+diff -ruN -x data a/src/kernels.hpp b/src/kernels.hpp
+--- a/src/kernels.hpp	2026-11-15 06:43:51.840685100 +0100
++++ b/src/kernels.hpp	2026-11-15 06:43:52.175699100 +0100
 @@ -28,7 +28,7 @@
  #define FNX_PF_JOB 64
  #endif
@@ -3515,7 +3815,7 @@ diff -ruN a/src/kernels.hpp b/src/kernels.hpp
  
  // the hyper-connection read (build_hc_mix) with the previous half's write folded in when bo_prev is not null:
  // R' = R + bo_prev * 2 sigmoid(inj_prev / HC); R <- R'; mixed = mean_c xn_c * sigmoid(up . silu(down . xn / HC));
-@@ -280,9 +281,22 @@
+@@ -280,9 +281,39 @@
  // in a slot take one, CLOCK, the layer's tables updated) and writes list (1 + MAXT * TOPK ints: how many took a slot,
  // then their ids) for moe_cache's copy.
  // sh_gu (rows sh_rows < 4096): the shared expert's gate|up over the q8_1 rows sh_y into sh_out, in the same launch
@@ -3537,10 +3837,27 @@ diff -ruN a/src/kernels.hpp b/src/kernels.hpp
 +// FNX_EXPERT_MASK (maska_patch.py): rows of `stride` floats whose first NEXP are a layer's router logits; a dropped
 +// expert's (its bit in keep clear) to -inf, so no top 10 or guess ever picks it. keep null: nothing to do
 +void expert_mask_logits(float* logits, int rows, int stride, const unsigned* keep, void* st);
++// Edge0's latent MoE (edge0_patch.py): the gate|up jobs' rows to t * LAT_G + label[expert]; swiglu with each expert's gate and
++// up scales (list: only when the list holds an expert, as p100_swiglu_after); the routed rows' sum by group, z [T][LAT_W]
++// (router weight and down scale folded in; each card its ff part); z as f16 for the prompt path
++void lat_rows(Job* jobs_gu, const int* njobs, const int* labels, void* st);
++void lat_bigrows(BigJob* jobs_gu, const int* njobs, int njobs_cap, const int* labels, void* st);
++void lat_swiglu_h16(const float* gu, int ffs, int P, uint16_t* h16, const int* topi, const float* esc, const int* list, void* st);
++void lat_z(const float* part, const int* topi, const float* topw, const int* labels, const float* esc, int T, float* z, void* st);
++void lat_z16(const float* part, const int* topi, const float* topw, const int* labels, const float* esc, int T, uint16_t* z, void* st);
++// edge0_patch6.py (FNX_LAT_SPLIT): a window's two latent exchanges (card h: groups h LAT_GH ..), k_ring's tagged words in host mailboxes
++// (in: this card's, written by the other card; next: the other card's; lat_x_words() each, two sets by the tag; tag and call as ring_sum's).
++// lat_xg: x [T][LAT_W] f32 with this card's half at column h LAT_HW -> xl16 [T][LAT_W] f16, the other half from the other card.
++// lat_zs: z [T][LAT_W] f32 (this card's ff part) -> zh [T][LAT_HW] f32: both cards' parts of this card's groups
++size_t lat_x_words();
++void lat_xg(const float* x, uint16_t* xl16, unsigned long long* in, unsigned long long* next, int T, int h, const unsigned* tag, int call,
++            unsigned* err, void* st);
++void lat_zs(const float* z, float* zh, unsigned long long* in, unsigned long long* next, int T, int h, const unsigned* tag, int call,
++            unsigned* err, void* st);
  // gu rows of 2*ffs: [gate | up] (A: per-expert stacked rows, stride sa). sh_down (Q4_K experts only): the shared
  // expert's swiglu of sh_gu ([T][2 * sh_ffs]) and down (N rows) into sh_out (row stride N), in the same launch
  void moe_gate_up(const DW& A, size_t sa, const Job* jobs, const int* njobs, int njobs_max, const void* xq, float* gu, void* st,
-@@ -310,6 +324,10 @@
+@@ -310,6 +341,10 @@
  void arena_slots(const ExpertCache& ec, int from, int to, void* st);
  // part rows of N from silu(gate) * up of the gu rows
  void moe_down(const DW& A, size_t sa, const Job* jobs, const int* njobs, int njobs_max, const float* gu, float* part, void* st);
@@ -3551,7 +3868,15 @@ diff -ruN a/src/kernels.hpp b/src/kernels.hpp
  // T rows of [gate (ffs) | up (ffs)] -> silu(gate) * up as q8_1 rows of ffs (the shared expert)
  void swiglu_stacked_q8_1(const float* gu, void* hq, int ffs, int T, void* st);
  // the weighted sum of the expert rows, read by the ring in place of x when part is not null
-@@ -362,6 +380,10 @@
+@@ -317,6 +352,7 @@
+     const float* part = nullptr;
+     const float* topw = nullptr;
+     const float* logits = nullptr;
++    const float* lat = nullptr;   // edge0_patch.py: the latent MoE's U output [T][N], the routed sum already (part's rows t * TOPK unused)
+ };
+ 
+ // the sum across the cards (ring; words of two fp16 values and a tag); bufs are this card's receive buffers, peers'
+@@ -362,6 +398,10 @@
  // R += bo * 2 sigmoid(inj / HC) per stream: a pending write applied on its own (before the PLE block)
  void hc_write(float* R, const float* bo, const float* inj, int T, void* st);
  
@@ -3562,7 +3887,7 @@ diff -ruN a/src/kernels.hpp b/src/kernels.hpp
  // y[r] = x[r] / sqrt(mean(x[r]^2) + eps) * w for rows of n
  void rms_norm_rows(const float* x, const float* w, float* y, int rows, int n, float eps, void* st);
  // the draft layer's input: R[t][c] = h[t][c] + e[t] for each of the HC streams (h rows of D, e rows of N)
-@@ -397,7 +419,11 @@
+@@ -397,7 +437,11 @@
  // into out_v / out_i (logit descending, id ascending on ties, however many tie); err bit 16: a logit was NaN or inf
  // before the penalties
  constexpr int TOPK_N = 64;
@@ -3575,10 +3900,10 @@ diff -ruN a/src/kernels.hpp b/src/kernels.hpp
 +                float* out_v, int* out_i, unsigned* err, void* st);   // pen_par: per row repeat, freq, present
  
  }  // namespace fnx
-diff -ruN a/src/model.cpp b/src/model.cpp
---- a/src/model.cpp	2026-11-13 16:22:58.263438500 +0100
-+++ b/src/model.cpp	2026-11-13 16:23:08.102036100 +0100
-@@ -29,6 +29,11 @@
+diff -ruN -x data a/src/model.cpp b/src/model.cpp
+--- a/src/model.cpp	2026-11-15 06:43:51.756295900 +0100
++++ b/src/model.cpp	2026-11-15 06:43:52.315992300 +0100
+@@ -29,9 +29,16 @@
  #include <cstring>
  #include <stdexcept>
  #include <thread>
@@ -3590,7 +3915,12 @@ diff -ruN a/src/model.cpp b/src/model.cpp
  
  namespace fnx {
  
-@@ -48,6 +53,40 @@
++bool g_lat_split = false;   // edge0_patch6.py (FNX_LAT_SPLIT; outside the file's anonymous namespace: model.hpp declares it)
++
+ namespace {
+ 
+ void ck(cudaError_t e, const char* what) {
+@@ -48,6 +55,40 @@
          throw std::runtime_error("card " + std::to_string(dev) + ": " + e.what());
      }
  }
@@ -3631,7 +3961,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
  // the ring stores straight into the next card's memory: with translated IOMMU domains every such write faults
  // (dmesg: "DMAR: ... PTE Write access is not set") and the first window ends in a ring timeout that names nothing.
  // Each card's IOMMU group must be identity (boot with iommu=pt); a card whose iommu_group link is absent has no IOMMU
-@@ -199,41 +238,36 @@
+@@ -199,41 +240,36 @@
  
  // a tensor's range of the mapping locked, LOCKERS threads each faulting in a part: one thread faults a cold file in
  // readahead-sized pieces (1.1 GB/s from the NVMe), 16 side by side reached 2.3 (tools/stage_test.cpp)
@@ -3699,7 +4029,15 @@ diff -ruN a/src/model.cpp b/src/model.cpp
  }
  
  // the stager's groups for load_card: group l every tensor of layer l, group NL the output head's. The head is read
-@@ -267,11 +301,20 @@
+@@ -252,6 +288,7 @@
+     std::vector<Stager::Group> gs(NL + 1);
+     for (const auto& kv : g.tensors()) {
+         int l = -1, n = 0;
++        if (kv.second.shard < 0 && !kv.second.data) continue;   // edge0_patch.py: FNX_LATENT shape-only tensors, never read
+         if (std::sscanf(kv.first.c_str(), "blk.%d.%n", &l, &n) == 1 && n > 0 && l >= 0 && l < NL) gs[(size_t) l].names.push_back(kv.first);
+     }
+     gs[NL].names = {"output_hc_norm.weight", "output_hc_down.weight", "output_hc_up.weight", "output.weight"};
+@@ -267,11 +304,20 @@
      return ti;
  }
  
@@ -3721,7 +4059,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          void* d = nullptr;
          if (store) d = store->dev(c.dev, bytes);
          else ck(cudaMalloc(&d, bytes), "cudaMalloc");
-@@ -297,30 +340,71 @@
+@@ -297,30 +343,71 @@
              return tmp.data();
          }
          void* hp = nullptr;
@@ -3803,7 +4141,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          ExpertCache& ec = c.ec;
          std::vector<std::pair<size_t, size_t>> sizes;   // each pool's (gate|up, down) bytes
          for (int l = 0; l < NL; ++l) {
-@@ -345,12 +429,13 @@
+@@ -345,12 +432,13 @@
              }
          }
          std::vector<int> owner, slot_of((size_t) NL * NEXP, -1);
@@ -3818,7 +4156,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
              if (p == ec.arena_pool)
                  std::stable_sort(owner.begin() + ec.s0[p], owner.end(),
                                   [&](int a, int b) { return (*arena_score)[(size_t) a] < (*arena_score)[(size_t) b]; });
-@@ -366,10 +451,26 @@
+@@ -366,10 +454,26 @@
              if (track) track->push_back(ec.pool[p]);
              c.bytes += (size_t) ec.n[p] * ec.slot_bytes[p];
          }
@@ -3847,7 +4185,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
              const int i = owner[(size_t) s], p = ec.pool_of[i / NEXP];
              if (p == ec.arena_pool) continue;
              const LayerW& L = c.L[(size_t) (i / NEXP)];
-@@ -392,8 +493,14 @@
+@@ -392,8 +496,14 @@
          const std::vector<unsigned char> ref((size_t) ec.n_slots, 0);
          ec.ref = put<unsigned char>(ref.data(), ref.size());
          ec.hand = put<int>(ec.s0, sizeof ec.s0);   // each pool's hand at its first slot
@@ -3863,7 +4201,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          for (int l = 0; l < NL; ++l) {
              c.L[(size_t) l].gu_e.ep = ec.ep_gu + (size_t) l * NEXP;
              c.L[(size_t) l].down_e.ep = ec.ep_dn + (size_t) l * NEXP;
-@@ -609,7 +716,8 @@
+@@ -609,7 +719,8 @@
          return w;
      }
      // per expert: rows [r0, r1) of t1 then of t2 (gate; up), expert-major
@@ -3873,7 +4211,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          if (t1.type != t2.type || t1.ne[0] != t2.ne[0] || t1.ne[2] != t2.ne[2]) throw std::runtime_error(t1.name + " and " + t2.name + " do not stack");
          row_range(t1, r0, r1);
          row_range(t2, r0, r1);
-@@ -620,14 +728,10 @@
+@@ -620,14 +731,10 @@
          w.row_bytes = t1.row_bytes();
          stride = (size_t) w.n_out * w.row_bytes;
          const size_t half = (size_t) (r1 - r0) * w.row_bytes, src_mat = (size_t) t1.ne[1] * w.row_bytes;
@@ -3892,7 +4230,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          return w;
      }
      // f32 tensors' rows one after another
-@@ -640,8 +744,26 @@
+@@ -640,8 +747,26 @@
          h.insert(h.end(), (const float*) t2.data, (const float*) t2.data + t2.ne[0] * t2.ne[1]);
          return put<float>(h.data(), h.size() * 4);
      }
@@ -3920,7 +4258,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          const TypeInfo ti = block32(t);
          DW w;
          w.type = t.type;
-@@ -653,13 +775,10 @@
+@@ -653,13 +778,44 @@
          if (b0 < 0 || b1 <= b0 || (size_t) b1 * ti.bytes > src_row)
              throw std::runtime_error(t.name + ": blocks [" + std::to_string(b0) + ", " + std::to_string(b1) + ") asked for, a row has " +
                                       std::to_string(src_row / ti.bytes));
@@ -3934,16 +4272,53 @@ diff -ruN a/src/model.cpp b/src/model.cpp
 -        place(w, h, bytes, stride, host_of);
 +                std::memcpy(dst + (size_t) r * w.row_bytes, t.data + e * src_mat + (size_t) r * src_row + (size_t) b0 * ti.bytes, w.row_bytes);
 +        });
++        return w;
++    }
++    // edge0_patch.py: Edge0's latent experts from their blobs (blk.l.lat_exps): gate rows [r0, r1) then up rows, 1792 values a row
++    DW lat_rows2(const Tensor& b, int r0, int r1, size_t& stride, const char** host_of, const char* perm, const char** perm_at) {
++        constexpr size_t ROW = LAT_ELL / 64 * 36, UP = (size_t) FF * ROW;
++        if (r0 < 0 || r1 <= r0 || r1 > FF) throw std::runtime_error(b.name + ": rows [" + std::to_string(r0) + ", " + std::to_string(r1) + ")");
++        DW w;
++        w.type = T_NVFP4;
++        w.n_in = LAT_ELL;
++        w.n_out = 2 * (r1 - r0);
++        w.row_bytes = ROW;
++        stride = (size_t) w.n_out * ROW;
++        const size_t half = (size_t) (r1 - r0) * ROW;
++        experts(w, stride, NEXP, host_of, perm, perm_at, [&](int64_t e, uint8_t* dst) {
++            const uint8_t* src = b.data + (size_t) e * LAT_BLOB;
++            std::memcpy(dst, src + (size_t) r0 * ROW, half);
++            std::memcpy(dst + half, src + UP + (size_t) r0 * ROW, half);
++        });
++        return w;
++    }
++    // down: every one of its 1792 rows, input blocks [b0, b1) of 64 values
++    DW lat_cols(const Tensor& b, int b0, int b1, size_t& stride, const char** host_of, const char* perm, const char** perm_at) {
++        constexpr size_t SRC = FF / 64 * 36, DOWN = (size_t) 2 * FF * (LAT_ELL / 64 * 36);
++        if (b0 < 0 || b1 <= b0 || b1 > FF / 64) throw std::runtime_error(b.name + ": down blocks [" + std::to_string(b0) + ", " + std::to_string(b1) + ")");
++        DW w;
++        w.type = T_NVFP4;
++        w.n_in = (b1 - b0) * 64;
++        w.n_out = LAT_ELL;
++        w.row_bytes = (size_t) (b1 - b0) * 36;
++        stride = (size_t) w.n_out * w.row_bytes;
++        experts(w, stride, NEXP, host_of, perm, perm_at, [&](int64_t e, uint8_t* dst) {
++            const uint8_t* src = b.data + (size_t) e * LAT_BLOB + DOWN;
++            for (int r = 0; r < w.n_out; ++r) std::memcpy(dst + (size_t) r * w.row_bytes, src + (size_t) r * SRC + (size_t) b0 * 36, w.row_bytes);
++        });
          return w;
      }
  };
-@@ -760,11 +879,16 @@
+@@ -760,11 +916,19 @@
  
  // The tensors come from st: group l is layer l's, group NL the output head's (stage_groups); each group is given back
  // once this card is through with it.
 -// host_experts: every routed expert to a host copy (an ExpertCache, or the lab's holder); store: the holder's shared memory
 +// host_experts: every routed expert to a host copy (an ExpertCache, or the lab's holder); store: the holder's shared memory.
 +// perm (FNX_EXPERT_DYN_GIB): those experts to VRAM for good as their layer loads, with no host copy
++// FNX_LATENT (edge0_patch.py): Edge0's group labels [NL][NEXP], in the mapping (Model::Model sets it)
++const int32_t* g_lat_labels = nullptr;
++
  void load_card(Stager& st, CardW& c, const std::vector<std::vector<char>>& resident, const std::vector<double>* arena_score,
 -               Store* store, bool host_experts) {
 +               Store* store, bool host_experts, const std::vector<std::vector<char>>& perm = {}) {
@@ -3956,7 +4331,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
      auto L = [&](int l, const char* s) -> const Tensor& { return st.t(l, "blk." + std::to_string(l) + "." + s); };
      // recurrent channel lists: q, k for this card's key heads; v for its value heads (s * NKH + k)
      std::vector<int> qch, kch, vch, vblocks;
-@@ -827,7 +951,7 @@
+@@ -827,7 +991,7 @@
              throw std::runtime_error("fnx: " + gi.name + " holds " + std::to_string(gi.ne[1]) + " rows and " + gs.name + " " +
                                       std::to_string(gs.ne[1]) + ", not the " + std::to_string(NEXP) +
                                       " gate rows and 1 shared row k_router_route reads");
@@ -3965,21 +4340,57 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          if (!is_attn(l)) {
              w.qkvz = up.dense(up.rows2(L(l, "attn_qkv.weight"), conv_rows, L(l, "attn_gate.weight"), zrows));
              w.ab = up.f32_rows2(L(l, "ssm_alpha.weight"), L(l, "ssm_beta.weight"), vheads, N);
-@@ -860,8 +984,11 @@
+@@ -860,8 +1024,47 @@
              w.idx_qn = up.f32(L(l, "indexer.q_norm.weight"), QSA_KEY);
              w.idx_kn = up.f32(L(l, "indexer.k_norm.weight"), QSA_KEY);
          }
 -        w.gu_e = up.expert_rows2(L(l, "ffn_gate_exps.weight"), L(l, "ffn_up_exps.weight"), c.ff0, c.ff1, w.gu_e_stride, hg);
 -        w.down_e = up.expert_cols(L(l, "ffn_down_exps.weight"), c.ff0 / 32, c.ff1 / 32, w.down_e_stride, hd);
 +        const char* pr = perm.empty() ? nullptr : perm[(size_t) l].data();
++        if (g_lat_labels) {   // edge0_patch.py: Edge0's latent experts, D and U, labels and tail scales
++            if (c.ff0 % 64 || c.ff1 % 64) throw std::runtime_error("FNX_LATENT: a card's ff range is not in NVFP4's 64-value blocks");
++            const Tensor& lb = L(l, "lat_exps");
++            w.gu_e = up.lat_rows2(lb, c.ff0, c.ff1, w.gu_e_stride, hg, pr, pr ? c.perm_gu.data() + (size_t) l * NEXP : nullptr);
++            w.down_e = up.lat_cols(lb, c.ff0 / 64, c.ff1 / 64, w.down_e_stride, hd, pr, pr ? c.perm_dn.data() + (size_t) l * NEXP : nullptr);
++            std::vector<float> esc((size_t) NEXP * 4);
++            for (int e = 0; e < NEXP; ++e) {
++                std::memcpy(&esc[(size_t) e * 4], lb.data + (size_t) e * LAT_BLOB + LAT_TAIL, 16);
++                for (int k = 0; k < 3; ++k) esc[(size_t) e * 4 + k] *= NVFP4_PRE;
++            }
++            w.lat_esc = up.put<float>(esc.data(), esc.size() * 4);
++            w.lat_lab = up.put<int>(g_lat_labels + (size_t) l * NEXP, (size_t) NEXP * 4);
++            // edge0_patch6.py, FNX_LAT_SPLIT: this card's half of the groups only (h: its place by its ff range, as in Engine::ffn_half)
++            const int h = g_lat_split ? c.ff0 / (c.ff1 - c.ff0) : 0, ng = g_lat_split ? LAT_GH : LAT_G, g0 = h * ng;
++            Tensor td = L(l, "lat_d");
++            if (g_lat_split) {   // D's rows [h LAT_HW, (h + 1) LAT_HW)
++                if (td.ne[0] != N || td.ne[1] != LAT_W) throw std::runtime_error("FNX_LAT_SPLIT: lat_d is not [LAT_W][N]");
++                td.data += (size_t) h * LAT_HW * td.row_bytes();
++                td.ne[1] = LAT_HW;
++                td.nbytes = (size_t) LAT_HW * td.row_bytes();
++            }
++            w.lat_d = up.q8split(td);
++            const Tensor& tu = L(l, "lat_u");   // [G][N][LAT_ELL] -> [N][G * LAT_ELL]: z (all 8 groups a row, or the card's 4) in one product
++            const size_t rb = (size_t) LAT_ELL / 32 * 34;
++            std::vector<uint8_t> uf((size_t) N * ng * rb);
++            for (int i = 0; i < N; ++i)
++                for (int gg = 0; gg < ng; ++gg) std::memcpy(&uf[((size_t) i * ng + gg) * rb], tu.data + ((size_t) (g0 + gg) * N + i) * rb, rb);
++            Tensor tf = tu;
++            tf.data = uf.data();
++            tf.ne[0] = (int64_t) ng * LAT_ELL;
++            tf.ne[1] = N;
++            tf.ne[2] = tf.ne[3] = 1;
++            tf.nbytes = uf.size();
++            w.lat_u = up.q8split(tf);
++        } else {
 +        w.gu_e = up.expert_rows2(L(l, "ffn_gate_exps.weight"), L(l, "ffn_up_exps.weight"), c.ff0, c.ff1, w.gu_e_stride, hg, pr,
 +                                 pr ? c.perm_gu.data() + (size_t) l * NEXP : nullptr);
 +        w.down_e = up.expert_cols(L(l, "ffn_down_exps.weight"), c.ff0 / 32, c.ff1 / 32, w.down_e_stride, hd, pr,
 +                                  pr ? c.perm_dn.data() + (size_t) l * NEXP : nullptr);
++        }
          w.sh_gu = up.dense(up.rows2(L(l, "ffn_gate_shexp.weight"), range(c.ff0, c.ff1), L(l, "ffn_up_shexp.weight"), range(c.ff0, c.ff1)));
          w.sh_down = up.dense(up.cols(L(l, "ffn_down_shexp.weight"), range(c.ff0 / 32, c.ff1 / 32)));
          if (!w.sh_gu.s.q || !w.sh_down.s.q) throw std::runtime_error("fnx: the shared expert is not Q8_0");
-@@ -896,7 +1023,7 @@
+@@ -896,7 +1099,7 @@
      if (!resident.empty()) {   // tracked, so the engine can place them again with more in RAM (Engine: VRAM short)
          const size_t before = c.bytes;
          Up ue{c, store, &c.expert_mem};
@@ -3988,7 +4399,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          c.expert_bytes = c.bytes - before;
      } else if (host_experts) c.ec_host_gu = hgu, c.ec_host_dn = hdn;   // the holder: placed by a worker
  }
-@@ -1099,12 +1226,10 @@
+@@ -1099,12 +1302,10 @@
          if (sg.ne[0] != N || sg.ne[1] != 1)
              throw std::runtime_error("mtp: mlp.shared_expert_gate.weight is " + std::to_string(sg.ne[0]) + " by " +
                                       std::to_string(sg.ne[1]) + ", not the " + std::to_string(N) + " by 1 it reads");
@@ -4005,16 +4416,33 @@ diff -ruN a/src/model.cpp b/src/model.cpp
      }
      w.wq = up.dense(up.rows(f["self_attn.q_proj.weight"], qrows_all));
      w.wk = up.dense(up.rows(f["self_attn.k_proj.weight"], kvrows_all));
-@@ -1240,7 +1365,7 @@
+@@ -1240,7 +1441,8 @@
  // the cards (the app's rule, strata_control/split_engine.py, refuses it earlier; this is the same check for a start that skipped the rule). The
  // server then starts the normal layer split. Q2_0 is not listed: the Gguf has already repacked it to Q4_0.
  static void check_supported(const Gguf& g) {
 -    const uint32_t ok[] = {T_Q4_K, T_Q5_K, T_Q5_1, T_Q8_0, T_Q4_0, T_IQ4_NL, T_IQ4_XS, T_IQ3_S, T_IQ3_XXS, T_IQ2_S};
-+    const uint32_t ok[] = {T_Q4_K, T_Q5_K, T_Q5_1, T_Q8_0, T_Q4_0, T_IQ4_NL, T_IQ4_XS, T_IQ3_S, T_IQ3_XXS, T_IQ2_S, T_IQ2_XXS, T_IQ1_M};
++    const uint32_t ok[] = {T_Q4_K, T_Q5_K, T_Q5_1, T_Q8_0, T_Q4_0, T_IQ4_NL, T_IQ4_XS, T_IQ3_S, T_IQ3_XXS, T_IQ2_S, T_IQ2_XXS, T_IQ1_M,
++                           T_NVFP4};   // NVFP4: Edge0's latent experts (edge0_patch.py)
      for (const auto& kv : g.tensors()) {
          const std::string& n = kv.first;
          if (n.find("_exps.weight") == std::string::npos || n.find("shexp") != std::string::npos) continue;
-@@ -1313,7 +1438,7 @@
+@@ -1264,6 +1466,15 @@
+         check_cards();
+     }
+     check_supported(g);
++    if (g.latent()) {   // edge0_patch.py
++        const Tensor& lt = g.t("lat_labels");
++        for (size_t i = 0; i < (size_t) NL * NEXP; ++i)
++            if (((const int32_t*) lt.data)[i] < 0 || ((const int32_t*) lt.data)[i] >= LAT_G) throw std::runtime_error("FNX_LATENT: a group label out of 0..7");
++        g_lat_labels = (const int32_t*) lt.data;
++        if (const char* s = std::getenv("FNX_LAT_SPLIT")) g_lat_split = std::atoi(s) != 0;   // edge0_patch6.py
++        if (g_lat_split && NCARD != 2) throw std::runtime_error("FNX_LAT_SPLIT: two cards");
++        if (g_lat_split) std::fprintf(stderr, "fnx: FNX_LAT_SPLIT: D and U by group, four groups a card (two exchanges a layer more)\n");
++    }
+ #if FNX_27B
+     const std::string p = "qwen35.";
+     // block_count holds the draft (nextn) layer too
+@@ -1313,7 +1524,7 @@
          throw std::runtime_error("27b: output.weight is not [" + std::to_string(N) + "][" + std::to_string(vocab) + "] (token_embd's vocabulary)");
      {   // the host gathers its rows every window: a row read from the disk costs milliseconds, so keep it in RAM
          const auto t0 = std::chrono::steady_clock::now();
@@ -4023,7 +4451,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
          std::fprintf(stderr, "27b: %s (%.1f GB) locked in RAM in %.1f s\n", tok_embd->name.c_str(), tok_embd->nbytes / 1e9,
                       std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
      }
-@@ -1323,13 +1448,7 @@
+@@ -1323,13 +1534,7 @@
      if (ple_table->type != T_IQ4_NL && ple_table->type != T_Q8_0)
          throw std::runtime_error("fnx: per_layer_token_embd.weight is neither IQ4_NL nor Q8_0 (the host's PLE rows read those)");
      vocab = (int) tok_embd->ne[1];
@@ -4038,7 +4466,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
      for (int64_t v : g.ia(p + "ple.layer_multipliers")) ple_mult.push_back((uint64_t) v);
      for (int64_t v : g.ia(p + "ple.head_offsets")) ple_off.push_back((uint64_t) v);
      for (int64_t v : g.ia(p + "ple.head_vocab_sizes")) ple_vocab.push_back((uint64_t) v);
-@@ -1449,7 +1568,7 @@
+@@ -1449,7 +1654,7 @@
          th.emplace_back([&, c] {
              try {
                  load_card(st, cards[c], resident, arena ? &score : nullptr, how == Load::HOLD ? store : nullptr,
@@ -4047,7 +4475,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
              } catch (const std::exception& e) {
                  errs[c] = e.what();
                  st.abort("card " + std::to_string(c) + " failed");   // the other cards wait on groups no one gives back
-@@ -1466,9 +1585,45 @@
+@@ -1466,9 +1671,45 @@
                   st.read_seconds(), disk, rate, cache, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
  }
  
@@ -4093,7 +4521,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
      // prod's settings are the defaults: the arena, the coldest 3 GiB of experts in RAM, ranked by
      // data/expert-routes.bin (expert use tallied over an agentic code-review panel).
      // FNX_ARENA=0 and FNX_EXPERT_RAM_GIB=off together: every expert in VRAM, no expert cache
-@@ -1486,6 +1641,8 @@
+@@ -1486,6 +1727,8 @@
              throw std::runtime_error(std::string("fnx: FNX_EXPERT_RAM_GIB: GiB (0 or more) or off, not '") + ram_s + "'");
      }
      if (arena && !cache) throw std::runtime_error("fnx: FNX_EXPERT_RAM_GIB=off needs FNX_ARENA=0 (the arena lends the cache's slots)");
@@ -4102,7 +4530,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
      if (cache) {
          const double want = ram_gib * (double) (1ull << 30);
          const char* prof_s = std::getenv("FNX_EXPERT_PROFILE");
-@@ -1510,6 +1667,7 @@
+@@ -1510,6 +1753,7 @@
              for (int e = 0; e < NEXP; ++e) {
                  const size_t i = (size_t) l * NEXP + e;
                  score[i] = (cnt[i] / std::max(1.0, td) + cnt[(size_t) NL * NEXP + i] / std::max(1.0, tp)) / bytes[(size_t) l];
@@ -4110,7 +4538,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
              }
          }
          std::vector<int> order((size_t) NL * NEXP);
-@@ -1518,17 +1676,170 @@
+@@ -1518,15 +1762,168 @@
          resident.assign(NL, std::vector<char>(NEXP, 1));
          double moved = 0;
          int n = 0, extra = 0;
@@ -4181,9 +4609,9 @@ diff -ruN a/src/model.cpp b/src/model.cpp
 +                                 "(by pool: %s); RAM holds %.1f GiB of experts\n",
 +                         np, pb / (1ull << 30), nd, dyn_bytes / (1ull << 30), pools.c_str(), (dyn_bytes + moved) / (1ull << 30));
 +        }
-     }
- }
- 
++    }
++}
++
 +// What only the load needed, once the model, the draft layer and the engine stand: the converted tensors (every card's slices are placed; 9 layers' down experts are
 +// among them), the mappings' pages and the file's page cache. Then what the load's peak sent to swap comes back here, not a fault at a time in the rounds.
 +void model_loaded(Model& m) {
@@ -4273,16 +4701,14 @@ diff -ruN a/src/model.cpp b/src/model.cpp
 +                for (size_t k = lo; k < hi; k += PG) sink += *(const volatile unsigned char*) (t->data + k);
 +                (void) sink;
 +            });
-+    }
+     }
 +    for (auto& x : th) x.join();
 +    std::fprintf(stderr, "fnx: RAM after the load: %.2f GiB of converted tensors freed, swap %lld -> %lld MiB, in %.1f s\n", freed / (double) (1ull << 30), sw0, swap_mib(),
 +                 std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
-+}
-+
+ }
+ 
  namespace {
- template <typename F>
- void each_card(std::vector<CardW>& cards, F f) {
-@@ -1547,8 +1858,25 @@
+@@ -1547,8 +1944,25 @@
  }
  }  // namespace
  
@@ -4308,7 +4734,7 @@ diff -ruN a/src/model.cpp b/src/model.cpp
      each_card(cards, [&](CardW& c) {
          if (c.ec_host_gu.size() != (size_t) NL * NEXP) throw std::runtime_error("fnx: placing experts needs their host copies");
          const size_t before = c.bytes;
-@@ -1616,7 +1944,8 @@
+@@ -1616,7 +2030,8 @@
          f(c.ple_norm_query), f(c.ple_norm_conv), f(c.ple_conv), f(c.bytes), f(c.host_bytes);
  }
  #if !FNX_27B   // the 27B has no holder (plain loads only)
@@ -4318,10 +4744,41 @@ diff -ruN a/src/model.cpp b/src/model.cpp
  #endif
  // every address load_card stores, in a card and in a layer: a worker moves them to where it mapped the holder's memory
  template <typename F>
-diff -ruN a/src/model.hpp b/src/model.hpp
---- a/src/model.hpp	2026-11-13 16:22:58.244932900 +0100
-+++ b/src/model.hpp	2026-11-13 16:23:08.081407600 +0100
-@@ -90,9 +90,14 @@
+@@ -1632,12 +2047,13 @@
+         dw(w.wq), dw(w.wk), dw(w.wv), dw(w.wo), f(w.q_norm), f(w.k_norm), f(w.idx_wq), f(w.idx_wk), dw(w.idx_qk), f(w.idx_qn),
+             f(w.idx_kn);
+         dw(w.gu_e), dw(w.down_e), dw(w.sh_gu), dw(w.sh_down);
++        q8(w.lat_d), q8(w.lat_u), f(w.lat_lab), f(w.lat_esc);   // edge0_patch.py
+     }
+     for (const char*& p : c.ec_host_gu) f(p);
+     for (const char*& p : c.ec_host_dn) f(p);
+ }
+ #if !FNX_27B
+-static_assert(sizeof(LayerW) == 952, "LayerW changed: put its new addresses in card_ptrs, then update this size");
++static_assert(sizeof(LayerW) == 1000, "LayerW changed: put its new addresses in card_ptrs, then update this size");
+ #endif
+ }  // namespace
+ 
+diff -ruN -x data a/src/model.hpp b/src/model.hpp
+--- a/src/model.hpp	2026-11-15 06:43:51.800478400 +0100
++++ b/src/model.hpp	2026-11-15 06:43:52.314979700 +0100
+@@ -55,6 +55,15 @@
+ 
+ namespace fnx {
+ 
++// Edge0's latent MoE (edge0_patch.py, FNX_LATENT): 8 groups of 1792 latent values a token; each expert's blob in experts.bin, its
++// tail at LAT_TAIL; NVFP4_PRE: the factor the NVFP4 decoders' scales are divided by (the tail scales take it back)
++constexpr int LAT_ELL = 1792, LAT_G = 8, LAT_W = LAT_ELL * LAT_G;
++// edge0_patch6.py, FNX_LAT_SPLIT=1: card h holds groups h LAT_GH .. h LAT_GH + 3 of D and U only (two exchanges a layer bring the rest)
++constexpr int LAT_GH = LAT_G / 2, LAT_HW = LAT_ELL * LAT_GH;
++extern bool g_lat_split;
++constexpr size_t LAT_BLOB = 1935376, LAT_TAIL = 1935360;
++constexpr float NVFP4_PRE = 16.0f;
++
+ static_assert(ncard_ok(NCARD), "FNX_NCARD: 2, 3, 4, 6 or 8 cards (card_split.hpp, ncard_ok)");
+ // the widest FF slice a card gets: FF in whole 32-value blocks, the first cards one block wider when they do not divide
+ // evenly (card_split.hpp's ff_lo / ff_hi, checked against this in Model::Model): what the down kernels' per-card
+@@ -90,9 +99,14 @@
  // window's experts that are not in a slot take one of their pool's (CLOCK: the first slot not used since the pool's
  // hand last passed), copied in from RAM, and the layer's tables (LayerW gu_e.ep / down_e.ep: rows of ep_gu / ep_dn)
  // follow. All device memory; the same steps on every card.
@@ -4337,7 +4794,7 @@ diff -ruN a/src/model.hpp b/src/model.hpp
      int n_pools = 0;
      int pool_of[NL] = {};                // each layer's pool
      int s0[EC_POOLS] = {}, n[EC_POOLS] = {};   // a pool's slots: [s0, s0 + n) of the slot numbers
-@@ -112,6 +117,12 @@
+@@ -112,6 +126,12 @@
      int arena_pool = -1;
      int arena_full = 0;                  // every expert in a slot at the start (no FNX_EXPERT_RAM_GIB): nothing lent, nothing out
      int* lent = nullptr;                 // [EC_POOLS]
@@ -4350,7 +4807,7 @@ diff -ruN a/src/model.hpp b/src/model.hpp
  };
  
  struct LayerW {
-@@ -120,7 +131,7 @@
+@@ -120,7 +140,7 @@
      Q8S hc_down[2];                    // [LR][D]
      Q8S hc_up[2];                      // [D][LR]
      uint16_t* hc_inj[2] = {};          // bf16 [HC][D]
@@ -4359,7 +4816,19 @@ diff -ruN a/src/model.hpp b/src/model.hpp
      // recurrent slice: this card's key heads and their value heads
      DW qkv, z, ssm_out;                // qkv rows: q (nk*HS), k (nk*HS), v (nv*HS); ssm_out: [N][nv*HS]
      DW qkvz;                           // qkv rows then z rows, one matrix
-@@ -193,10 +204,15 @@
+@@ -146,6 +166,11 @@
+     DW gu_e, down_e;                   // per expert: [gate; up] [2 ff][N], down [N][ff]; expert stride = rows * row_bytes
+     size_t gu_e_stride = 0, down_e_stride = 0;
+     DW sh_gu, sh_down;                 // shared expert ff range, gate and up stacked the same way
++    // Edge0's latent MoE (edge0_patch.py, FNX_LATENT): D [LAT_W][N] and U = [U_0 | ... | U_7] [N][LAT_W] (every card the whole
++    // of both), the layer's group labels [NEXP] and each expert's output scales [NEXP][gate, up, down, 0] (times NVFP4_PRE)
++    Q8S lat_d, lat_u;
++    const int* lat_lab = nullptr;
++    const float* lat_esc = nullptr;
+ #if FNX_27B
+     // pre-norms (copied) and the dense FFN's slice [fd0, fd1): gate rows then up rows; down's input columns
+     const float* attn_norm = nullptr;
+@@ -193,10 +218,15 @@
      size_t bytes = 0;                  // what the loader allocated
      size_t host_bytes = 0;             // routed experts' copies in RAM (page-locked, mapped)
      ExpertCache ec;                    // n_slots 0: every routed expert in VRAM at its DW's p
@@ -4376,7 +4845,7 @@ diff -ruN a/src/model.hpp b/src/model.hpp
  };
  
  // the draft (MTP) layer on one card: an attention layer (hc [0] before the attention, [1] before the MoE), its input
-@@ -251,11 +267,19 @@
+@@ -251,11 +281,19 @@
      // off: no cache) leaves the coldest G GiB of them (whole experts, all cards' slices) out, ranked by
      // FNX_EXPERT_PROFILE (FNX_ROUTE_COUNT's tallies; default data/expert-routes.bin)
      std::vector<std::vector<char>> resident;
@@ -4396,9 +4865,9 @@ diff -ruN a/src/model.hpp b/src/model.hpp
      explicit Model(const std::string& gguf_first_shard, Load how = Load::PLAIN, Store* store = nullptr, const std::string* image = nullptr);
      // the residency and arena settings (FNX_EXPERT_RAM_GIB, FNX_ARENA, FNX_EXPERT_PROFILE) read again
      void choose_residency();
-diff -ruN a/src/moe.cuh b/src/moe.cuh
---- a/src/moe.cuh	2026-11-13 16:22:58.122190000 +0100
-+++ b/src/moe.cuh	2026-11-13 16:23:07.911691400 +0100
+diff -ruN -x data a/src/moe.cuh b/src/moe.cuh
+--- a/src/moe.cuh	2026-11-15 06:43:51.758734800 +0100
++++ b/src/moe.cuh	2026-11-15 06:43:52.256707800 +0100
 @@ -5,12 +5,17 @@
  // Output rows: pair t*TOPK+k. The shared expert runs beside them as dense launches into rows T*TOPK+t; the weighted
  // sum happens in the ring.
@@ -5095,9 +5564,9 @@ diff -ruN a/src/moe.cuh b/src/moe.cuh
          }
          return;
      }
-diff -ruN a/src/moe_mma.cu b/src/moe_mma.cu
---- a/src/moe_mma.cu	2026-11-13 16:22:57.905050700 +0100
-+++ b/src/moe_mma.cu	2026-11-13 16:23:08.008417600 +0100
+diff -ruN -x data a/src/moe_mma.cu b/src/moe_mma.cu
+--- a/src/moe_mma.cu	2026-11-15 06:43:51.844288900 +0100
++++ b/src/moe_mma.cu	2026-11-15 06:43:52.294392900 +0100
 @@ -33,6 +33,32 @@
  
  namespace fnx {
@@ -5136,9 +5605,9 @@ diff -ruN a/src/moe_mma.cu b/src/moe_mma.cu
  
  }  // namespace fnx
 +#endif
-diff -ruN a/src/p100_attn.cuh b/src/p100_attn.cuh
+diff -ruN -x data a/src/p100_attn.cuh b/src/p100_attn.cuh
 --- a/src/p100_attn.cuh	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/p100_attn.cuh	2026-11-13 16:23:07.699064900 +0100
++++ b/src/p100_attn.cuh	2026-11-15 06:43:52.208099100 +0100
 @@ -0,0 +1,458 @@
 +// p100_attn.cuh: a prompt chunk's attention on GP100, int8 K/V: Strata's score and value kernels for the P100 (src/kernels/cuda/qsa_pattn.cu, PR #3943) over the split
 +// engine's paged K/V and partials. A lane keeps 8 dimensions of its 12 query heads in registers, so a cell costs it one read of shared memory for 96 products; the
@@ -5598,9 +6067,9 @@ diff -ruN a/src/p100_attn.cuh b/src/p100_attn.cuh
 +}
 +
 +}  // namespace fnx
-diff -ruN a/src/p100_dma.cuh b/src/p100_dma.cuh
+diff -ruN -x data a/src/p100_dma.cuh b/src/p100_dma.cuh
 --- a/src/p100_dma.cuh	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/p100_dma.cuh	2026-11-13 16:23:07.569345900 +0100
++++ b/src/p100_dma.cuh	2026-11-15 06:43:52.164278900 +0100
 @@ -0,0 +1,391 @@
 +// p100_dma.cuh: a decode layer's missing experts copied by the card's copy engine (FNX_P100_DMA=1), beside the row kernels of the ones in VRAM, so the copy takes no SM away from them
 +// (the side-stream copy kernel did, and lost at T = 2). The plan's list goes to a mailbox in mapped host memory (k_dma_publish: each expert's host copies and slot), a host thread
@@ -5993,9 +6462,9 @@ diff -ruN a/src/p100_dma.cuh b/src/p100_dma.cuh
 +}
 +
 +}  // namespace fnx
-diff -ruN a/src/p100_dma_box.cuh b/src/p100_dma_box.cuh
+diff -ruN -x data a/src/p100_dma_box.cuh b/src/p100_dma_box.cuh
 --- a/src/p100_dma_box.cuh	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/p100_dma_box.cuh	2026-11-13 16:23:07.797455400 +0100
++++ b/src/p100_dma_box.cuh	2026-11-15 06:43:52.236391900 +0100
 @@ -0,0 +1,27 @@
 +// p100_dma_box.cuh: the copy engine's mailbox and its words in VRAM (p100_dma.cuh); the router's last block writes them too (FNX_FOLD,
 +// moe.cuh). Included inside fnx's unnamed namespace.
@@ -6024,10 +6493,10 @@ diff -ruN a/src/p100_dma_box.cuh b/src/p100_dma_box.cuh
 +    unsigned gu_done[DMA_MAX], dn_done[DMA_MAX];   // split 2: the list whose k-th expert's gate|up / down part has landed
 +};
 +#endif
-diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
+diff -ruN -x data a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 --- a/src/p100_iq_gemm.cuh	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/p100_iq_gemm.cuh	2026-11-13 16:23:07.582062100 +0100
-@@ -0,0 +1,842 @@
++++ b/src/p100_iq_gemm.cuh	2026-11-15 06:43:52.170046300 +0100
+@@ -0,0 +1,895 @@
 +// p100_iq_gemm.cuh - GP100, the prompt path's expert products: IQ / Q2_0 weights decoded straight into shared memory, FP16 activations, FP32 sums.
 +// Include after ggml-common.h (blocks, grids) and cuda_fp16.h.
 +//
@@ -6065,6 +6534,7 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +    uint4* g2xxs;    // 256: 8 half (IQ2_XXS)
 +    uint4* g1p;      // 2048: 8 half, IQ1_M's grid value + 0.125
 +    uint4* g1m;      // 2048: the same - 0.125
++    uint32_t* fp4;   // 256: half2(e2m1[low nibble], e2m1[high nibble]) doubled, NVFP4 (edge0_patch.py)
 +};
 +
 +struct Args {
@@ -6107,6 +6577,10 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +        t.sign8[i] = mask8(uint32_t(i));
 +        t.nib[i] = as_u32(__floats2half2_rn(float(kvalues_iq4nl[i & 15]), float(kvalues_iq4nl[i >> 4])));
 +        t.nib4[i] = as_u32(__floats2half2_rn(float(int(i & 15) - 8), float(int(i >> 4) - 8)));
++        {   // edge0_patch.py: NVFP4's e2m1 values, doubled as ggml's kvalues_fp4
++            const float fv[16] = {0.f, 1.f, 2.f, 3.f, 4.f, 6.f, 8.f, 12.f, 0.f, -1.f, -2.f, -3.f, -4.f, -6.f, -8.f, -12.f};
++            t.fp4[i] = as_u32(__floats2half2_rn(fv[i & 15], fv[i >> 4]));
++        }
 +        const half2 q0 = __floats2half2_rn(float(int(i & 3) - 1), float(int((i >> 2) & 3) - 1));
 +        const half2 q1 = __floats2half2_rn(float(int((i >> 4) & 3) - 1), float(int((i >> 6) & 3) - 1));
 +        t.q20[i] = make_uint2(as_u32(q0), as_u32(q1));
@@ -6145,8 +6619,28 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +// ---- 32 consecutive values (run 32 * run of a row), as 4 groups of 8 values in 4 half2 words each (the dq_* formulas of iq_kernels.cu).
 +// A lane takes 4 runs a slice: first all their block bytes (one round trip to memory, all in flight), then each run's tables.
 +#define P100_U16(p, off) (uint32_t(*reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(p) + (off))))
++
++// NVFP4 (edge0_patch.py): a block of 64 is d[4] (UE4M3, a scale a 16 values) and qs[32] (sub-block s: bytes 8 s .. 8 s + 7, value j in
++// the low nibble of byte j, j + 8 in its high one); run r of a row = half r & 1 of block r >> 1: sub-blocks A = 2 h, B = 2 h + 1.
++// The scale's value is ggml's ue4m3 (with its 1/2, the codes being doubled) divided by NVFP4_PRE = 16 (the experts' tails take it back).
++__device__ __forceinline__ float nvfp4_scale(uint32_t x) {
++    x &= 255u;
++    if (x == 0u || x == 0x7Fu) return 0.f;
++    const int e = int(x >> 3) & 15, m = int(x & 7u);
++    return e == 0 ? ldexpf(float(m), -14) : ldexpf(1.0f + float(m) * 0.125f, e - 12);
++}
++template <typename P8>
++__device__ __forceinline__ void nvfp4_words(const P8* base, const int h, uint32_t* w) {
++    const int q = 4 + 16 * h;
++    w[0] = P100_U16(base, q) | (P100_U16(base, q + 2) << 16);
++    w[1] = P100_U16(base, q + 4) | (P100_U16(base, q + 6) << 16);
++    w[2] = P100_U16(base, q + 8) | (P100_U16(base, q + 10) << 16);
++    w[3] = P100_U16(base, q + 12) | (P100_U16(base, q + 14) << 16);
++    w[4] = P100_U16(base, 2 * h);
++}
 +template <int TY> struct RunWords { static constexpr int n = 6; };
 +template <> struct RunWords<20> { static constexpr int n = 5; };
++template <> struct RunWords<40> { static constexpr int n = 5; };   // NVFP4 (edge0_patch.py): codes of sub-blocks A, B; their scales
 +template <> struct RunWords<2> { static constexpr int n = 5; };
 +template <> struct RunWords<42> { static constexpr int n = 3; };
 +template <> struct RunWords<22> { static constexpr int n = 3; };
@@ -6264,6 +6758,8 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +        const uint32_t sl = x->scales_l[ib / 2], sh = x->scales_h, du = P100_U16(&x->d, 0);
 +        w[4] = ((sl >> (4 * (ib & 1))) & 15) | (((sh >> (2 * ib)) & 3) << 4);
 +        w[5] = du;
++    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py)
++        nvfp4_words(reinterpret_cast<const uint8_t*>(row) + 36 * (run >> 1), run & 1, w);
 +    } else if constexpr (TY == 20) {   // IQ4_NL
 +        const block_iq4_nl* x = reinterpret_cast<const block_iq4_nl*>(row) + run;
 +        w[0] = P100_U16(x->qs, 0) | (P100_U16(x->qs, 2) << 16);
@@ -6320,6 +6816,17 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +            const half2 dd = j < 2 ? d0 : d1;
 +            out[j] = make_uint4(hmul(g.x ^ sg.x, dd), hmul(g.y ^ sg.y, dd), hmul(g.z ^ sg.z, dd), hmul(g.w ^ sg.w, dd));
 +        }
++#define FP4P(v) hmul(__ldg(t.fp4 + (((v) & 15) | (((v) >> 4) & 0xf0))), dd)
++    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py): out[0] values 0-7 (A's low nibbles), out[1] 8-15 (A's high), out[2], out[3] B's
++        const half2 da = dup_f(nvfp4_scale(w[4])), db = dup_f(nvfp4_scale(w[4] >> 8));
++#pragma unroll
++        for (int g = 0; g < 2; ++g) {
++            const uint32_t a = w[2 * g], b = w[2 * g + 1];
++            const half2 dd = g ? db : da;
++            out[2 * g] = make_uint4(FP4P(a & 0xffff), FP4P(a >> 16), FP4P(b & 0xffff), FP4P(b >> 16));
++            out[2 * g + 1] = make_uint4(FP4P((a >> 4) & 0x0fff), FP4P(a >> 20), FP4P((b >> 4) & 0x0fff), FP4P(b >> 20));
++        }
++#undef FP4P
 +    } else if constexpr (TY == 23 || TY == 20) {
 +        half2 dd;
 +        if constexpr (TY == 23) dd = dup_f(h2f(uint16_t(w[5])) * float(int(w[4]) - 32));
@@ -6453,9 +6960,9 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +// ---- gemm4: a lane owns a row.  A warp reading 2-byte fields of 32 different rows fetches a cache line for each: 47 times the traffic of the
 +// weights, which on the card's L2 costs as much as the products.  So a lane first reads its row's next IQ block with aligned 16-byte loads into
 +// shared memory (the bytes in flight, one round trip) and decodes from there.
-+template <int TY> inline constexpr int kSU = TY == 12 ? 10 : TY == 13 ? 12 : TY == 7 ? 7 : TY == 8 ? 10 : TY == 23 ? 10 : TY == 18 || TY == 21 ? 8 : TY == 22 ? 7 : TY == 20 || TY == 2 ? 6 : TY == 16 || TY == 29 ? 5 : 4;
-+template <int TY> inline constexpr int kRunsGr = TY == 20 || TY == 2 || TY == 42 || TY == 7 || TY == 8 ? 4 : 8;
-+template <int TY> inline constexpr int kGrBytes = TY == 12 ? 144 : TY == 13 ? 176 : TY == 7 ? 96 : TY == 8 ? 136 : TY == 18 ? 98 : TY == 21 ? 110 : TY == 22 ? 82 : TY == 23 ? 136 : TY == 20 || TY == 2 ? 72 : TY == 16 ? 66 : TY == 29 ? 56 : 36;
++template <int TY> inline constexpr int kSU = TY == 12 ? 10 : TY == 13 ? 12 : TY == 7 ? 7 : TY == 8 ? 10 : TY == 23 ? 10 : TY == 18 || TY == 21 ? 8 : TY == 22 ? 7 : TY == 20 || TY == 2 || TY == 40 ? 6 : TY == 16 || TY == 29 ? 5 : 4;
++template <int TY> inline constexpr int kRunsGr = TY == 20 || TY == 2 || TY == 42 || TY == 7 || TY == 8 || TY == 40 ? 4 : 8;
++template <int TY> inline constexpr int kGrBytes = TY == 12 ? 144 : TY == 13 ? 176 : TY == 7 ? 96 : TY == 8 ? 136 : TY == 18 ? 98 : TY == 21 ? 110 : TY == 22 ? 82 : TY == 23 ? 136 : TY == 20 || TY == 2 || TY == 40 ? 72 : TY == 16 ? 66 : TY == 29 ? 56 : 36;
 +
 +template <int TY>
 +__device__ __forceinline__ void run_load_s(const uint8_t* p, const int run, uint32_t (&w)[RunWords<TY>::n]) {
@@ -6512,6 +7019,8 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +        const uint32_t sl = x->scales_l[ib / 2], sh = x->scales_h, du = P100_U16(&x->d, 0);
 +        w[4] = ((sl >> (4 * (ib & 1))) & 15) | (((sh >> (2 * ib)) & 3) << 4);
 +        w[5] = du;
++    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py): a group is two blocks, four runs
++        nvfp4_words(p + 36 * ((run & 3) >> 1), run & 1, w);
 +    } else if constexpr (TY == 20 || TY == 2) {
 +        const block_iq4_nl* x = reinterpret_cast<const block_iq4_nl*>(p) + (run & 3);
 +        w[0] = P100_U16(x->qs, 0) | (P100_U16(x->qs, 2) << 16);
@@ -6559,6 +7068,8 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +    } else if constexpr (TY == 29) {
 +    } else if constexpr (TY == 2) {
 +        for (int i = tid; i < 64; i += nt) tab[i] = __ldg(reinterpret_cast<const uint4*>(t.nib4) + i);
++    } else if constexpr (TY == 40) {   // edge0_patch.py
++        for (int i = tid; i < 64; i += nt) tab[i] = __ldg(reinterpret_cast<const uint4*>(t.fp4) + i);
 +    } else if constexpr (TY == 23 || TY == 20) {
 +        for (int i = tid; i < 64; i += nt) tab[i] = __ldg(reinterpret_cast<const uint4*>(t.nib) + i);
 +    } else {
@@ -6637,6 +7148,17 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +            const half2 dd = j < 2 ? d0 : d1;
 +            out[j] = make_uint4(hmul(gv[j].x, dd), hmul(gv[j].y, dd), hmul(gv[j].z, dd), hmul(gv[j].w, dd));
 +        }
++#define FP4P(v) nib_pair_s(reinterpret_cast<const uint32_t*>(tab), (v), dd)
++    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py): out[0] values 0-7 (A's low nibbles), out[1] 8-15 (A's high), out[2], out[3] B's
++        const half2 da = dup_f(nvfp4_scale(w[4])), db = dup_f(nvfp4_scale(w[4] >> 8));
++#pragma unroll
++        for (int g = 0; g < 2; ++g) {
++            const uint32_t a = w[2 * g], b = w[2 * g + 1];
++            const half2 dd = g ? db : da;
++            out[2 * g] = make_uint4(FP4P(a & 0xffff), FP4P(a >> 16), FP4P(b & 0xffff), FP4P(b >> 16));
++            out[2 * g + 1] = make_uint4(FP4P((a >> 4) & 0x0fff), FP4P(a >> 20), FP4P((b >> 4) & 0x0fff), FP4P(b >> 20));
++        }
++#undef FP4P
 +    } else if constexpr (TY == 23 || TY == 20 || TY == 2) {
 +        const uint32_t* nib = reinterpret_cast<const uint32_t*>(tab);
 +        half2 dd;
@@ -6780,7 +7302,7 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +    if (t.g3xxs == nullptr) {
 +        cudaMalloc(&t.g3xxs, 256 * 8); cudaMalloc(&t.g3s, 512 * 8); cudaMalloc(&t.g2s, 1024 * 16); cudaMalloc(&t.sign8, 256 * 16);
 +        cudaMalloc(&t.sign7, 128 * 16); cudaMalloc(&t.nib, 256 * 4); cudaMalloc(&t.nib4, 256 * 4); cudaMalloc(&t.q20, 256 * 8); cudaMalloc(&t.s12, 16 * 4); cudaMalloc(&t.s6, 64 * 4);
-+        cudaMalloc(&t.g2xxs, 256 * 16); cudaMalloc(&t.g1p, 2048 * 16); cudaMalloc(&t.g1m, 2048 * 16);
++        cudaMalloc(&t.g2xxs, 256 * 16); cudaMalloc(&t.g1p, 2048 * 16); cudaMalloc(&t.g1m, 2048 * 16); cudaMalloc(&t.fp4, 256 * 4);
 +        tabs_kernel<<<8, 256, 0, st>>>(t);
 +    }
 +    return t;
@@ -6870,10 +7392,10 @@ diff -ruN a/src/p100_iq_gemm.cuh b/src/p100_iq_gemm.cuh
 +}
 +
 +}  // namespace strata::kernels::p100f::iqg
-diff -ruN a/src/p100_moe.cu b/src/p100_moe.cu
+diff -ruN -x data a/src/p100_moe.cu b/src/p100_moe.cu
 --- a/src/p100_moe.cu	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/p100_moe.cu	2026-11-13 16:23:07.832722600 +0100
-@@ -0,0 +1,739 @@
++++ b/src/p100_moe.cu	2026-11-15 06:43:52.241556300 +0100
+@@ -0,0 +1,740 @@
 +// The prompt path's routed experts on GP100: Strata's FP16 expert kernel (p100_iq_gemm.cuh) over the split engine's jobs.
 +// An expert's tokens come from its BigJob instead of a contiguous range, and its matrix from moe_expert (a VRAM slot or the mapped host copy).
 +#include "kernels.hpp"
@@ -7478,6 +8000,7 @@ diff -ruN a/src/p100_moe.cu b/src/p100_moe.cu
 +        case T_IQ2_S: P100_JOB(22); break;
 +        case T_IQ4_XS: P100_JOB(23); break;
 +        case T_IQ4_NL: P100_JOB(20); break;
++        case T_NVFP4: P100_JOB(40); break;   // edge0_patch.py
 +        case T_Q4_K: P100_JOB(12); break;   // q4x_patch.py
 +        case T_Q5_K: P100_JOB(13); break;
 +        case T_Q5_1: P100_JOB(7); break;
@@ -7613,10 +8136,10 @@ diff -ruN a/src/p100_moe.cu b/src/p100_moe.cu
 +    k_memo_stat<<<1, 32, 0, (cudaStream_t) st>>>(topi, mg, probe, cache_list, layer, T, pf_n, pf_list, stat);
 +}
 +}  // namespace fnx
-diff -ruN a/src/p100_moe_rows.cuh b/src/p100_moe_rows.cuh
+diff -ruN -x data a/src/p100_moe_rows.cuh b/src/p100_moe_rows.cuh
 --- a/src/p100_moe_rows.cuh	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/p100_moe_rows.cuh	2026-11-13 16:23:07.738587700 +0100
-@@ -0,0 +1,607 @@
++++ b/src/p100_moe_rows.cuh	2026-11-15 06:43:52.222341900 +0100
+@@ -0,0 +1,615 @@
 +// p100_moe_rows.cuh: a decode window's routed experts on GP100: few tokens per expert, so a lane owns a row and nothing waits in shared memory.
 +// gemm4 (p100_iq_gemm.cuh) is built for a prompt chunk: its 48 x 128 tile fills shared memory, so an SM holds one block and a block decodes its weights
 +// whatever the tokens: 290 us a wave. Here shared memory holds only the tables, so an SM holds several blocks and the time goes with the work.
@@ -7632,7 +8155,7 @@ diff -ruN a/src/p100_moe_rows.cuh b/src/p100_moe_rows.cuh
 +#ifndef FNX_ROW_G
 +#define FNX_ROW_G 2
 +#endif
-+template <int TY> inline constexpr int kRowG = TY == 20 || TY == 2 || TY == 7 || TY == 8 ? 1 : FNX_ROW_G;       // lanes per row: a gate|up row is long, a down row short
++template <int TY> inline constexpr int kRowG = TY == 20 || TY == 2 || TY == 7 || TY == 8 || TY == 40 ? 1 : FNX_ROW_G;       // lanes per row: a gate|up row is long, a down row short
 +inline constexpr int kRowT = 256;
 +
 +template <int P, int NW>
@@ -7704,6 +8227,13 @@ diff -ruN a/src/p100_moe_rows.cuh b/src/p100_moe_rows.cuh
 +        w[3] = g16<20 + 16 * IB>(W) | (g16<22 + 16 * IB>(W) << 16);
 +        w[4] = ((g8<4 + IB / 2>(W) >> (4 * (IB & 1))) & 15u) | (((g16<2>(W) >> (2 * IB)) & 3u) << 4);
 +        w[5] = g16<0>(W);
++    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py): block IB >> 1, half IB & 1 (p100_iq_gemm.cuh's nvfp4_words)
++        constexpr int B = 36 * (IB >> 1), Q = B + 4 + 16 * (IB & 1);
++        w[0] = g16<Q>(W) | (g16<Q + 2>(W) << 16);
++        w[1] = g16<Q + 4>(W) | (g16<Q + 6>(W) << 16);
++        w[2] = g16<Q + 8>(W) | (g16<Q + 10>(W) << 16);
++        w[3] = g16<Q + 12>(W) | (g16<Q + 14>(W) << 16);
++        w[4] = g16<B + 2 * (IB & 1)>(W);
 +    } else {   // IQ4_NL, Q4_0: blocks of d, qs[16]
 +        constexpr int B = 18 * IB;
 +        w[0] = g16<B + 2>(W) | (g16<B + 4>(W) << 16);
@@ -8055,6 +8585,7 @@ diff -ruN a/src/p100_moe_rows.cuh b/src/p100_moe_rows.cuh
 +        case T_IQ2_S: rows_launch<22>(a, T, njobs_cap, s); break;
 +        case T_IQ4_XS: rows_launch<23>(a, T, njobs_cap, s); break;
 +        case T_IQ4_NL: rows_launch<20>(a, T, njobs_cap, s); break;
++        case T_NVFP4: rows_launch<40>(a, T, njobs_cap, s); break;   // edge0_patch.py
 +        case T_Q4_0: rows_launch<2>(a, T, njobs_cap, s); break;
 +        case T_IQ2_XXS: rows_launch<16>(a, T, njobs_cap, s); break;
 +        case T_IQ1_M: rows_launch<29>(a, T, njobs_cap, s); break;
@@ -8224,9 +8755,9 @@ diff -ruN a/src/p100_moe_rows.cuh b/src/p100_moe_rows.cuh
 +}
 +
 +}  // namespace fnx
-diff -ruN a/src/p100_over.hpp b/src/p100_over.hpp
+diff -ruN -x data a/src/p100_over.hpp b/src/p100_over.hpp
 --- a/src/p100_over.hpp	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/p100_over.hpp	2026-11-13 16:23:08.004883500 +0100
++++ b/src/p100_over.hpp	2026-11-15 06:43:52.287202100 +0100
 @@ -0,0 +1,80 @@
 +// p100_over.hpp: a decode layer's missing experts copied on a stream of their own while the ones in VRAM are computed (p100_moe_rows.cuh).
 +#pragma once
@@ -8308,9 +8839,9 @@ diff -ruN a/src/p100_over.hpp b/src/p100_over.hpp
 +void p100_attn_window(const float* qg, const uint16_t* kc, const uint16_t* vc, const KvPages& g, const int* pos0, const int* cells, const int* n_cells, int card, int T,
 +                      float* part, float* scratch, void* st);
 +}  // namespace fnx
-diff -ruN a/src/pf_common.cuh b/src/pf_common.cuh
---- a/src/pf_common.cuh	2026-11-13 16:22:58.192668700 +0100
-+++ b/src/pf_common.cuh	2026-11-13 16:23:07.512520400 +0100
+diff -ruN -x data a/src/pf_common.cuh b/src/pf_common.cuh
+--- a/src/pf_common.cuh	2026-11-15 06:43:51.801491800 +0100
++++ b/src/pf_common.cuh	2026-11-15 06:43:52.154037400 +0100
 @@ -41,10 +41,25 @@
  // the prompt path's allocations on the card being set up: reset per card as it is built; Flash-Next's later stages
  // save and restore it around their own, and the 27B allocates nothing after prefill_alloc
@@ -8375,9 +8906,9 @@ diff -ruN a/src/pf_common.cuh b/src/pf_common.cuh
                  // the parts that arrived (everything but the one finished here) go to device memory by DMA, then one kernel reads it all
                  if (r.dma)
                      for (int p = 0; p < NCARD; ++p)
-diff -ruN a/src/prefill.cu b/src/prefill.cu
---- a/src/prefill.cu	2026-11-13 16:22:58.079006700 +0100
-+++ b/src/prefill.cu	2026-11-13 16:23:08.065817000 +0100
+diff -ruN -x data a/src/prefill.cu b/src/prefill.cu
+--- a/src/prefill.cu	2026-11-15 06:43:51.854396600 +0100
++++ b/src/prefill.cu	2026-11-15 06:43:52.310628800 +0100
 @@ -7,6 +7,7 @@
  // What the chunk leaves is the state a run of windows over the same rows leaves: K/V, recurrent states and
  // histories, the PLE history, the QSA keys, and with the draft layer attached its K/V and QSA keys too (the draft layer
@@ -8516,7 +9047,22 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
  
  // ---------------------------------------------------------------- routing
  // row t (a warp): top 10 of the NEXP logits (the lower index on a tie), weights the selected softmax renormalized
-@@ -355,6 +451,8 @@
+@@ -327,6 +423,14 @@
+     bool moe_q8 = false;              // FNX_PF_MOE_Q8=1: the experts through the decode kernels' q8_1 arithmetic
+     float *logits, *topw, *gu, *part, *shg;
+     __half* shh;
++    __half* lat16 = nullptr;          // edge0_patch.py (FNX_LATENT): D's f16 rows (t * LAT_G + group), then z as f16
++    float* latu = nullptr;            // U's output [C][N]
++    // edge0_patch6.py (FNX_LAT_SPLIT): lrx: the other card's part of z for this card's groups, then the sum [C][LAT_HW] f16 (U's half's input);
++    // lhb: host rows the other card's halves land in (two sets), lnhb: the other card's; lflags [2 sets][rows in, rows read], lnflags: the other's
++    __half* lrx = nullptr;
++    __half *lhb[2] = {}, *lnhb[2] = {};
++    unsigned *lflags = nullptr, *lnflags = nullptr;
++    unsigned lseq = 0;
+     int *topi, *cnt, *jbase, *njobs;
+     BigJob *jobs_gu, *jobs_dn;
+     float *qkvz, *ab, *y32;
+@@ -355,6 +459,8 @@
      // the exchange in att_pieces pieces of the chunk's rows (FNX_PF_ATT_PIECES): a piece's partials go while the next
      // piece is computed, so only the last one's copy waits; ev_piece: a piece computed, ev_j: a set's sends on st2 done
      int att_pieces = 4;
@@ -8525,7 +9071,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      cudaEvent_t ev_piece[ATT_PIECES_MAX], ev_j[2];
      unsigned att_seq[2] = {};         // a set's exchange's sequence number
      int att_pend = -1, att_pend_rows = 0;   // the chunk whose merge waits (-1: none), its rows
-@@ -386,6 +484,16 @@
+@@ -386,6 +492,16 @@
      bool overlap = false;
      cudaStream_t ring_st = nullptr;
      cudaEvent_t ev_go[Engine::PF_PASS], ev_ra[Engine::PF_PASS], ev_rf[Engine::PF_PASS];
@@ -8542,7 +9088,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      // with an ExpertCache: a pass's expert tables (device, [NL][NEXP]; pinned copies to build them in) and the copies
      // into stage[l & 1] (on cs) of layer l's experts not in a slot, as many as fit; the rest are read in place
      char* stage[2] = {};
-@@ -406,8 +514,16 @@
+@@ -406,8 +522,16 @@
  };
  
  namespace {
@@ -8560,7 +9106,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      if (std::getenv("FNX_PF_GEMM_LOG")) {   // each shape once (for tools/gemm_bench.cu)
          static std::set<std::tuple<int, int, int, int>> seen;
          if (seen.insert({rows, cols, C, ldo}).second) std::fprintf(stderr, "pf_gemm: rows %d cols %d C %d ldo %d\n", rows, cols, C, ldo);
-@@ -417,12 +533,13 @@
+@@ -417,12 +541,93 @@
          const __half one = __float2half(1.0f), zero = __float2half(0.0f);
          __half* tmp = reinterpret_cast<__half*>(p.up32);   // up32 is free outside the hc read
          ckb(cublasGemmEx(p.blas, CUBLAS_OP_T, CUBLAS_OP_N, rows, C, cols, &one, W, CUDA_R_16F, cols, X, CUDA_R_16F, cols, &zero, tmp,
@@ -8574,10 +9120,90 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          ckb(cublasGemmEx(p.blas, CUBLAS_OP_T, CUBLAS_OP_N, rows, C, cols, &one, W, CUDA_R_16F, cols, X, CUDA_R_16F, cols, &zero, out,
 -                         CUDA_R_32F, ldo, CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP), "gemm");
 +                         CUDA_R_32F, ldo, CUBLAS_COMPUTE_32F, algo), "gemm");
++    }
++}
++// edge0_patch.py: out = W . X for a split-layout Q8_0 matrix (dequantized to f16, in slices of rows as pf_dense_xh), X f16 [C][cols];
++// out f16 (D's latent rows) or f32 (U's), accumulated in f32
++// edge0_patch2.py, FNX_LAT_CHECK=1: are n values at p (f16 or f32) all finite? A bit `code` in *flag if not
++__global__ void k_lat_finite(const void* __restrict__ p, size_t n, int half, unsigned* flag, unsigned code) {
++    for (size_t i = blockIdx.x * (size_t) blockDim.x + threadIdx.x; i < n; i += (size_t) gridDim.x * blockDim.x) {
++        const float v = half ? __half2float(((const __half*) p)[i]) : ((const float*) p)[i];
++        if (!(fabsf(v) <= 60000.f)) { atomicOr(flag, code); return; }   // not finite, or past what the fp16 ring between the cards carries
++    }
++}
++// the codes: 1 xh (D's input), 2 D's rows, 4 gate|up, 8 swiglu, 16 down, 32 z, 64 U
++void lat_check(const void* p, size_t n, bool half, unsigned code, int l, int C, cudaStream_t s) {
++    static unsigned* flag[16] = {};   // a flag on each card
++    int dev = 0;
++    cudaGetDevice(&dev);
++    if (!flag[dev & 15]) ckc(cudaMalloc(&flag[dev & 15], 4), "lat check");
++    unsigned* f = flag[dev & 15];
++    ckc(cudaMemsetAsync(f, 0, 4, s), "lat check");
++    k_lat_finite<<<grid_for(n), 256, 0, s>>>(p, n, half ? 1 : 0, f, code);
++    unsigned h = 0;
++    ckc(cudaMemcpyAsync(&h, f, 4, cudaMemcpyDeviceToHost, s), "lat check");
++    ckc(cudaStreamSynchronize(s), "lat check");
++    if (h) {
++        std::fprintf(stderr, "fnx: FNX_LAT_CHECK: card %d layer %d chunk of %d rows: not finite after step %u (1 xh, 2 D, 4 gate|up, 8 swiglu, 16 down, 32 z, 64 U)\n",
++                     dev, l, C, h);
++        throw std::runtime_error("FNX_LAT_CHECK: a NaN or inf in the latent MoE");
++    }
++}
++// edge0_patch4.py, FNX_LAT_DUMP=<dir>: the layer FNX_LAT_DUMP_L's inputs and U output of the first chunk, each card's to files
++void lat_dump(const Engine::Pf& p, int l, int C, cudaStream_t s) {
++    static const char* dir = std::getenv("FNX_LAT_DUMP");
++    static const int want = std::getenv("FNX_LAT_DUMP_L") ? std::atoi(std::getenv("FNX_LAT_DUMP_L")) : 20;
++    static bool done[16] = {};
++    int dev = 0;
++    cudaGetDevice(&dev);
++    if (!dir || l != want || done[dev & 15]) return;
++    done[dev & 15] = true;
++    ckc(cudaStreamSynchronize(s), "lat dump");
++    auto put = [&](const char* name, const void* d, size_t bytes) {
++        std::vector<char> h(bytes);
++        ckc(cudaMemcpy(h.data(), d, bytes, cudaMemcpyDeviceToHost), "lat dump");
++        const std::string path = std::string(dir) + "/c" + std::to_string(dev) + "_" + name;
++        FILE* fp = std::fopen(path.c_str(), "wb");
++        if (!fp) throw std::runtime_error("FNX_LAT_DUMP: cannot write " + path);
++        std::fwrite(h.data(), 1, bytes, fp);
++        std::fclose(fp);
++    };
++    put("xh.f16", p.xh, (size_t) C * N * 2);
++    put("topi.i32", p.topi, (size_t) C * TOPK * 4);
++    put("topw.f32", p.topw, (size_t) C * TOPK * 4);
++    put("latu.f32", p.latu, (size_t) C * N * 4);
++    const std::string meta = std::to_string(C) + " " + std::to_string(l) + "\n";
++    FILE* fp = std::fopen((std::string(dir) + "/c" + std::to_string(dev) + "_C.txt").c_str(), "w");
++    if (fp) { std::fputs(meta.c_str(), fp); std::fclose(fp); }
++    std::fprintf(stderr, "fnx: FNX_LAT_DUMP: card %d layer %d, %d rows written to %s\n", dev, l, C, dir);
++}
++void lat_dense(Engine::Pf& p, const Q8S& w, int rows, int cols, const __half* X, int C, void* out, bool f16_out, int ldo, cudaStream_t s) {
++    if (!w.q) throw std::runtime_error("prefill: a latent matrix without the split Q8_0 layout");
++    if (cols % 32 != 0 || (size_t) cols > PF_WH) throw std::runtime_error("prefill: a latent matrix's rows don't fit the f16 staging");
++    const int slice = (int) std::min<size_t>(rows, PF_WH / cols / 128 * 128);
++    const float one = 1.0f, zero = 0.0f;
++    const __half one_h = __float2half(1.0f), zero_h = __float2half(0.0f);
++    // edge0_patch2.py: f16 accumulation as the other prompt products (FNX_PF_F16ACC), unless FNX_LAT_F32=1
++    static const bool f32 = std::getenv("FNX_LAT_F32") != nullptr;
++    const bool h = p.f16acc && !f32;
++    for (int r0 = 0; r0 < rows; r0 += slice) {
++        const int nr = std::min(slice, rows - r0);
++        k_q8s_f16<<<grid_for((size_t) nr * cols), 256, 0, s>>>(w.q + (size_t) r0 * cols, w.d + (size_t) r0 * cols / 32, (size_t) nr * cols, p.wh);
++        if (h && !f16_out) {   // f32 out through pf_gemm's f16 path (its f16 product, then to f32)
++            pf_gemm(p, p.wh, nr, cols, X, C, (float*) out + r0, ldo, s);
++            continue;
++        }
++        void* o = f16_out ? (void*) ((__half*) out + r0) : (void*) ((float*) out + r0);
++        if (h)
++            ckb(cublasGemmEx(p.blas, CUBLAS_OP_T, CUBLAS_OP_N, nr, C, cols, &one_h, p.wh, CUDA_R_16F, cols, X, CUDA_R_16F, cols, &zero_h, o,
++                             CUDA_R_16F, ldo, CUBLAS_COMPUTE_16F, CUBLAS_GEMM_DEFAULT_TENSOR_OP), "latent gemm f16");
++        else
++            ckb(cublasGemmEx(p.blas, CUBLAS_OP_T, CUBLAS_OP_N, nr, C, cols, &one, p.wh, CUDA_R_16F, cols, X, CUDA_R_16F, cols, &zero, o,
++                             f16_out ? CUDA_R_16F : CUDA_R_32F, ldo, CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP), "latent gemm");
      }
  }
  // out = W . xh for a split-layout Q8_0 matrix (dequantized to f16), xh: C rows of cols as f16 already in p.xh
-@@ -447,26 +564,45 @@
+@@ -447,26 +652,45 @@
      const float one = 1.0f, zero = 0.0f;
      ckb(cublasSgemm(p.blas, CUBLAS_OP_T, CUBLAS_OP_N, rows, C, cols, &one, W, cols, x, cols, &zero, out, ldo), "sgemm");
  }
@@ -8632,16 +9258,36 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      // FNX_PF_HC_CHECK=1 (debugging): the inject rows the way k_hcb_mixinj made them, against prep's
      static const bool check = std::getenv("FNX_PF_HC_CHECK") != nullptr;
      if (check && w_inj) {
-@@ -509,7 +645,7 @@
+@@ -496,12 +720,15 @@
+ // ---- the chunk sum on the copy engines
+ // this card's addend into x: the routed experts' weighted rows plus the gated shared row (as ring_x makes it)
+ __global__ void k_pfr_addend(float* __restrict__ x, const float* __restrict__ part, const float* __restrict__ topw,
+-                             const float* __restrict__ logits, int C) {
++                             const float* __restrict__ logits, int C, const float* __restrict__ lat = nullptr) {
+     for (size_t e = blockIdx.x * (size_t) blockDim.x + threadIdx.x; e < (size_t) C * N; e += (size_t) gridDim.x * blockDim.x) {
+         const int t = (int) (e / N), i = (int) (e % N);
+         float s = 0.f;
++        if (lat) s = lat[(size_t) t * N + i];   // edge0_patch.py: U's output
++        else {
+ #pragma unroll
+         for (int k = 0; k < TOPK; ++k) s = fmaf(topw[t * TOPK + k], part[((size_t) t * TOPK + k) * N + i], s);
++        }
+         x[e] = fmaf(pf_sigm(logits[(size_t) t * (NEXP + 1) + NEXP]), part[((size_t) C * TOPK + t) * N + i], s);
+     }
+ }
+@@ -509,9 +736,9 @@
  
  // the sum of x (C rows of N) over the cards on card g, one way round (each card's link is busy both ways already: it
  // sends to g + 1 while it takes from g - 1; measured, the other direction at once halves both)
 -void pf_ring(Engine::Pf& p, int g, float* x, int C, const RingMoe* m, unsigned* err, cudaStream_t s) {
 +void pf_ring(Engine::Pf& p, int g, float* x, int C, const RingMoe* m, unsigned* err, cudaStream_t s, bool rs_only = false) {
      const unsigned seq = ++p.seq;
-     if (m) k_pfr_addend<<<grid_for((size_t) C * N), 256, 0, s>>>(x, m->part, m->topw, m->logits, C);
+-    if (m) k_pfr_addend<<<grid_for((size_t) C * N), 256, 0, s>>>(x, m->part, m->topw, m->logits, C);
++    if (m) k_pfr_addend<<<grid_for((size_t) C * N), 256, 0, s>>>(x, m->part, m->topw, m->logits, C, m->lat);
  #if FNX_HIP
-@@ -530,10 +666,33 @@
+     if (p.rccl) {
+         const RcclApi& api = *(const RcclApi*) p.rc_api;
+@@ -530,10 +757,72 @@
          return;
      }
  #endif
@@ -8673,10 +9319,49 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
 +    cud(cuStreamWriteValue32(cs, (CUdeviceptr) (p.gnflags + set * 2 + 1), seq, 0), "gather read");
 +}
 +
++// edge0_patch6.py: r [C][LAT_HW] (the other card's part of z) += this card's, z's rows at stride LAT_W; f16 values added in f32
++__global__ void k_lat_zadd(const __half* __restrict__ z, __half* __restrict__ r, int C) {
++    const size_t n = (size_t) C * (LAT_HW / 2);
++    for (size_t e = blockIdx.x * (size_t) blockDim.x + threadIdx.x; e < n; e += (size_t) gridDim.x * blockDim.x) {
++        const size_t t = e / (LAT_HW / 2), i = e % (LAT_HW / 2);
++        const float2 a = __half22float2(reinterpret_cast<const __half2*>(z + t * LAT_W)[i]);
++        __half2* q = reinterpret_cast<__half2*>(r + t * LAT_HW) + i;
++        const float2 b = __half22float2(*q);
++        *q = __floats2half2_rn(a.x + b.x, a.y + b.y);
++    }
++}
++// edge0_patch6.py (FNX_LAT_SPLIT): a latent exchange of a prompt chunk on stream s, pf_gather's way (the copy engine into the other card's host
++// rows, flags [set][0]: the rows are in, [set][1]: the receiver has them). zs false: this card's half of D's rows (lat16's columns h LAT_HW) to
++// the other card, its half into lat16's other columns. zs true: this card's part of z for the other card's groups to it, the other card's part
++// of this card's groups into lrx (pf_lat_zadd adds this card's, a pass later). Every card makes the same calls in the same order (lseq), and
++// the exchange is the last thing a card queues in its pass: the other card's send must be queued before this card queues more
++void pf_lat_swap(Engine::Pf& p, int h, int C, bool zs, cudaStream_t s) {
++    static_assert(NCARD == 2, "pf_lat_swap: two cards");
++    if (!p.lrx || !p.lflags || !p.lnflags) throw std::runtime_error("FNX_LAT_SPLIT: the prompt path's latent exchange buffers");
++    const unsigned seq = ++p.lseq;
++    const int set = (int) (seq & 1u), own = h * LAT_HW, oth = (1 - h) * LAT_HW;   // lat16's columns: this card's groups, the other's
++    const size_t row = (size_t) LAT_HW * sizeof(__half), pitch = (size_t) LAT_W * sizeof(__half);
++    CUstream cs = (CUstream) s;
++    if (seq > 2) cud(cuStreamWaitValue32(cs, (CUdeviceptr) (p.lflags + set * 2 + 1), seq - 2, CU_STREAM_WAIT_VALUE_GEQ), "latent consumed");
++    ckc(cudaMemcpy2DAsync(p.lnhb[set], row, p.lat16 + (zs ? oth : own), pitch, row, C, cudaMemcpyDefault, s), "latent send");
++    cud(cuStreamWriteValue32(cs, (CUdeviceptr) (p.lnflags + set * 2), seq, 0), "latent flag");
++    cud(cuStreamWaitValue32(cs, (CUdeviceptr) (p.lflags + set * 2), seq, CU_STREAM_WAIT_VALUE_GEQ), "latent wait");
++    if (zs) ckc(cudaMemcpyAsync(p.lrx, p.lhb[set], (size_t) C * row, cudaMemcpyDefault, s), "latent in");
++    else ckc(cudaMemcpy2DAsync(p.lat16 + oth, pitch, p.lhb[set], row, row, C, cudaMemcpyDefault, s), "latent in");
++    cud(cuStreamWriteValue32(cs, (CUdeviceptr) (p.lnflags + set * 2 + 1), seq, 0), "latent read");
++    ckc(cudaGetLastError(), "latent exchange");
++}
++// edge0_patch6.py: lrx (the other card's part of z for this card's groups) += this card's: the U half's input. In the pass after the
++// exchange's (a kernel's first launch may wait for the whole context, so nothing is queued behind an exchange's wait in its pass)
++void pf_lat_zadd(Engine::Pf& p, int h, int C, cudaStream_t s) {
++    k_lat_zadd<<<grid_for((size_t) C * (LAT_HW / 2)), 256, 0, s>>>(p.lat16 + (size_t) h * LAT_HW, p.lrx, C);
++    ckc(cudaGetLastError(), "latent z sum");
++}
++
  // the attention partials to their heads' cards: block k of apart to card k (into its slot for this card), then wait
  // for the other cards' blocks of this card's heads. One receive set: a card's next exchange comes after a chunk sum that
  // needs every card past its merge
-@@ -553,9 +712,47 @@
+@@ -553,9 +842,47 @@
  void pf_attn_start(Engine::Pf& p, CardBuf& b, uint16_t* kc, uint16_t* vc, int g, int C, int set, cudaStream_t s) {
      const unsigned seq = p.att_seq[set] = ++p.seq;
      const int n = p.att_pieces;
@@ -8725,7 +9410,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          ckc(cudaEventRecord(p.ev_piece[i], s), "attn event");
          ckc(cudaStreamWaitEvent(b.st2, p.ev_piece[i], 0), "attn wait piece");
          pf_attn_send(p, set, g, C, r0, r1 - r0, i, seq, b.st2);
-@@ -618,6 +815,10 @@
+@@ -618,6 +945,14 @@
          ckc(cudaMemset(p.ring_ce.flags, 0, 2 * PF_RING_STEPS * sizeof(unsigned)), "prompt ring flags");
          for (unsigned* f : p.aflags) ckc(cudaMemset(f, 0, ATT_FLAG_ROWS * ATT_PIECES_MAX * sizeof(unsigned)), "attention exchange flags");
          p.seq = p.att_seq[0] = p.att_seq[1] = start;
@@ -8733,10 +9418,14 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
 +            ckc(cudaMemset(p.gflags, 0, 4 * sizeof(unsigned)), "gather flags");
 +            p.gseq = 0;
 +        }
++        if (p.lflags) {   // edge0_patch6.py: the latent exchanges count from 0 again
++            ckc(cudaMemset(p.lflags, 0, 4 * sizeof(unsigned)), "latent flags");
++            p.lseq = 0;
++        }
      }
      for (CardBuf* b : cb_) { ckc(cudaSetDevice(b->dev), "set"); ckc(cudaDeviceSynchronize(), "prompt sequence reset sync"); }
  }
-@@ -632,6 +833,7 @@
+@@ -632,6 +967,7 @@
          size_t free0 = 0, tot0 = 0;
          ckc(cudaMemGetInfo(&free0, &tot0), "mem info");
          pf_card_bytes = 0;
@@ -8744,7 +9433,19 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          Pf* p = new Pf;
          ckb(cublasCreate(&p->blas), "create");
          {
-@@ -673,6 +875,7 @@
+@@ -654,6 +990,11 @@
+             p->shg = a.take<float>((size_t) pf_c_ * 2 * ffs);
+             p->shh = a.take<__half>((size_t) pf_c_ * ffs);
+             p->h16 = a.take<uint16_t>((size_t) pf_c_ * TOPK * ffs);
++            if (std::getenv("FNX_LATENT")) {   // edge0_patch.py
++                p->lat16 = a.take<__half>((size_t) pf_c_ * LAT_W);
++                p->latu = a.take<float>((size_t) pf_c_ * N);
++                if (g_lat_split) p->lrx = a.take<__half>((size_t) pf_c_ * LAT_HW);   // edge0_patch6.py
++            }
+         };
+         auto attn_set = [&](Arena& a) {
+             p->qg = a.take<float>((size_t) pf_c_ * NQH * 2 * HD);
+@@ -673,6 +1014,7 @@
              }
              p->scores = a.take<float>((size_t) std::max(attn_rows(), p->qsa_pf_rows) * (max_ctx_ / 4));
              p->apart[0] = a.take<float>(NCARD * attn_prompt_block_floats(pf_c_));
@@ -8752,7 +9453,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          };
          auto rec_set = [&](Arena& a) {
              p->qkvz = a.take<float>((size_t) pf_c_ * rs_qkvz);
-@@ -726,6 +929,7 @@
+@@ -726,6 +1068,7 @@
              own([q] { q8_untwin(q); });
          }
          p->logits = palloc<float>((size_t) pf_c_ * (NEXP + 1));
@@ -8760,10 +9461,14 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          p->topw = palloc<float>((size_t) pf_c_ * TOPK);
          p->topi = palloc<int>((size_t) pf_c_ * TOPK);
          p->cnt = palloc<int>(NEXP);
-@@ -829,6 +1033,22 @@
+@@ -829,6 +1172,26 @@
                      }
              }
          }
++        if (g_lat_split) {   // edge0_patch6.py (FNX_LAT_SPLIT): the latent halves' host rows (a chunk of half rows, two sets) and flags
++            for (int k = 0; k < 2; ++k) p->lhb[k] = hpalloc<__half>((size_t) pf_c_ * LAT_HW);
++            p->lflags = hpalloc<unsigned>(4);
++        }
 +        // FNX_PF_SP (idea 58, sp_patch.py): a second mixed, the gathers' host rows (half a chunk of rows of D, two sets), flags, stream
 +        if (env_int("FNX_PF_SP", 0) != 0 && NCARD == 2 && p->overlap && !p->ring_sm) {
 +            p->sp = true;
@@ -8783,7 +9488,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          if (w.ec.n_slots) {   // the stages themselves: prefill_stages, once the experts' places are final
              const long long stage_rows = env_int("FNX_PF_STAGE_ROWS", 2048);
              if (stage_rows < 0 || stage_rows > INT32_MAX)
-@@ -851,6 +1071,7 @@
+@@ -851,6 +1214,7 @@
                  }
          }
          p->alloc_bytes = pf_card_bytes;
@@ -8791,10 +9496,15 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          pf_[c] = p;
          if (env_flag("FNX_PF_TIMING"))
              std::fprintf(stderr, "prefill buffers on card %d: %zu MiB (%zu MiB free before)\n", c, pf_card_bytes >> 20, free0 >> 20);
-@@ -863,6 +1084,14 @@
+@@ -863,6 +1227,19 @@
              }
              pf_[c]->pdev[k] = pf_[k]->dev;
          }
++    if (g_lat_split)
++        for (int c = 0; c < NCARD; ++c) {   // edge0_patch6.py: each card's latent halves land in the other card's host rows
++            for (int k = 0; k < 2; ++k) pf_[c]->lnhb[k] = pf_[(c + 1) % NCARD]->lhb[k];
++            pf_[c]->lnflags = pf_[(c + 1) % NCARD]->lflags;
++        }
 +    for (int c = 0; c < NCARD; ++c) {   // FNX_PF_SP: each card's gathers land in the other card's host rows
 +        Pf& p = *pf_[c];
 +        const Pf& n = *pf_[(c + 1) % NCARD];
@@ -8806,7 +9516,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      for (int c = 0; c < NCARD; ++c) {
          Pf& p = *pf_[c];
          const Pf& n = *pf_[(c + 1) % NCARD];
-@@ -915,10 +1144,13 @@
+@@ -915,10 +1292,13 @@
      const CardW& w = m_.cards[c];
      if (!w.ec.n_slots) return 0;
      // a stage holds the largest layer's experts not in a slot at the start, FNX_PF_STAGE_MIB at most
@@ -8821,7 +9531,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          most = std::max(most, n * (w.L[(size_t) l].gu_e_stride + w.L[(size_t) l].down_e_stride));
      }
      const long long stage_mib = env_int("FNX_PF_STAGE_MIB", 384);
-@@ -934,7 +1166,9 @@
+@@ -934,7 +1314,9 @@
          if (!p.stage_bytes) continue;
          ckc(cudaSetDevice(p.dev), "set");
          pf_card_bytes = p.alloc_bytes;   // palloc's out-of-memory message says what this card's prompt path holds
@@ -8831,7 +9541,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          p.alloc_bytes = pf_card_bytes;
          if (env_flag("FNX_PF_TIMING"))
              std::fprintf(stderr, "prefill on card %d: passes of %d chunks, stages of %zu MiB\n", c, p.pass, p.stage_bytes >> 20);
-@@ -981,6 +1215,26 @@
+@@ -981,6 +1363,26 @@
  
  void Engine::prefill(const std::vector<int>& tokens, int after) {
      if (!pending_.empty() || !rows_pending_.lanes.empty()) throw std::runtime_error("prefill: a window is not committed");
@@ -8858,7 +9568,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      if (mtp_ && after < 0) throw std::runtime_error("prefill: the draft layer needs the token after the last row");
      if (pf_[0]->seq >= PF_SEQ_RESET) {
          std::fprintf(stderr, "fnx: prompt ring sequence numbers at %u: flags zeroed, numbers from 0 again\n", pf_[0]->seq);
-@@ -1006,18 +1260,39 @@
+@@ -1006,18 +1408,39 @@
      const int h0 = (int) history_.size();
      const auto tok_at = [&](int q) -> int { return q < h0 ? history_[q] : tokens[q - h0]; };
      const size_t nt = tokens.size(), per = (size_t) K * pf_c_;
@@ -8900,7 +9610,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
              i += c.tokens.size();
          }
      };
-@@ -1037,6 +1312,17 @@
+@@ -1037,6 +1460,17 @@
  
  void Engine::prefill_pass(const std::vector<PfChunk>& chunks, bool staging, const std::function<void()>& between) {
      const auto t_pass = std::chrono::steady_clock::now();
@@ -8918,7 +9628,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      const int nk = (int) chunks.size();
      int rows = 0;
      std::vector<int> pos0((size_t) nk);
-@@ -1096,7 +1382,7 @@
+@@ -1096,7 +1530,7 @@
              for (int l = 0; l < NL; ++l) {
                  const size_t gs = w.L[(size_t) l].gu_e_stride, ds = w.L[(size_t) l].down_e_stride;
                  int n_ram = 0;
@@ -8927,7 +9637,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
                  const int fit = std::min(n_ram, (int) (p.stage_bytes / (gs + ds)));
                  char* gu_at = p.stage[l & 1];
                  char* dn_at = gu_at + (size_t) fit * gs;
-@@ -1110,10 +1396,14 @@
+@@ -1110,10 +1544,14 @@
                  for (int e = 0; e < NEXP; ++e) {
                      const size_t i = (size_t) l * NEXP + e;
                      const int s = p.slot_h[i];
@@ -8943,13 +9653,14 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
                      } else if (k < fit) {
                          p.ep_hgu[i] = gu_at + (size_t) k * gs, p.ep_hdn[i] = dn_at + (size_t) k * ds;
                          add(w.ec_host_gu[i], gu_at + (size_t) k * gs, gs);
-@@ -1152,11 +1442,12 @@
+@@ -1152,11 +1590,12 @@
      // made here: the next chunk's experts reuse their buffers), while the pass's next chunk computes; `done` marks it
      // finished, and the chunk's next half waits for that alone. A layer runs every chunk's attention half, then every
      // chunk's FFN half, so there is a next chunk to compute meanwhile
 +    bool ring_rs = false;   // FNX_PF_SP: the split layers' sums stop after their reduce-scatter
      auto ring_async = [&](int c, CardBuf& b, Pf& p, float* x, const RingMoe* m, int j, cudaEvent_t done, int rows) {
-         if (m) k_pfr_addend<<<grid_for((size_t) rows * N), 256, 0, b.st>>>(x, m->part, m->topw, m->logits, rows);
+-        if (m) k_pfr_addend<<<grid_for((size_t) rows * N), 256, 0, b.st>>>(x, m->part, m->topw, m->logits, rows);
++        if (m) k_pfr_addend<<<grid_for((size_t) rows * N), 256, 0, b.st>>>(x, m->part, m->topw, m->logits, rows, m->lat);
          ckc(cudaEventRecord(p.ev_go[j], b.st), "ring go");
          ckc(cudaStreamWaitEvent(p.ring_st, p.ev_go[j], 0), "ring go");
 -        pf_ring(p, c, x, rows, nullptr, b.ring.err, p.ring_st);
@@ -8957,7 +9668,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
          if (p.rccl) p.post.push_back([&p, done] { ckc(cudaEventRecord(done, p.ring_st), "ring done"); });   // after the sum's conversion, once the group is closed
          else ckc(cudaEventRecord(done, p.ring_st), "ring done");
      };
-@@ -1170,6 +1461,233 @@
+@@ -1170,6 +1609,274 @@
          pf_dense(p, w.L[l].wo.s, N, w.nq * HD, p.att, rows, p.boak[j], N, b.st);
          if (l < NL - 1 || mtp_) ring_async(c, b, p, p.boak[j], nullptr, j, p.ev_ra[j], rows);   // the last layer's sum: unused
      };
@@ -9126,32 +9837,70 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
 +            };
 +            auto ffn_post = [&](int j) {
 +                use(j);
-+                each([&](int, CardBuf& b, const CardW& w, Pf& p) {
++                const int lph_n = g_lat_split && m_.cards[0].L[l].lat_d.q ? 3 : 1;   // edge0_patch6.py: FNX_LAT_SPLIT's passes
++                for (int lph = 0; lph < lph_n; ++lph) each([&](int, CardBuf& b, const CardW& w, Pf& p) {
 +                    const LayerW& L = w.L[l];
 +                    cudaStream_t s = b.st;
 +                    const int P = C * TOPK, ffs = w.ff1 - w.ff0;
 +                    DW gu_e = L.gu_e, down_e = L.down_e;
 +                    if (staging) {
 +                        gu_e.ep = p.ep_gu + (size_t) l * NEXP, down_e.ep = p.ep_dn + (size_t) l * NEXP;
-+                        if (j == 0) ckc(cudaStreamWaitEvent(s, p.ev_ready[l & 1], 0), "stage in");
++                        if (j == 0 && lph == 0) ckc(cudaStreamWaitEvent(s, p.ev_ready[l & 1], 0), "stage in");
 +                    }
-+                    if (spl) ckc(cudaStreamWaitEvent(s, p.ev_agd[j], 0), "mixed gathered");
-+                    p.mixed = p.mixk[j & 1];
-+                    k_f32_f16<<<grid_for((size_t) C * N), 256, 0, s>>>(p.mixed, (size_t) C * N, p.xh);   // the f16 of mixed
-+                    if (p.moe_q8) quantize_q8_1(p.mixed, p.xq, N, C, s);
-+                    pf_prof_mark(b, PF_ROUTER);
-+                    k_bf16_f32<<<grid_for((size_t) (NEXP + 1) * N), 256, 0, s>>>(L.router, (size_t) (NEXP + 1) * N, p.router32);
-+                    pf_sgemm(p, p.router32, NEXP + 1, N, p.mixed, C, p.logits, NEXP + 1);
-+                    expert_mask_logits(p.logits, C, NEXP + 1, b.ekeep ? b.ekeep + (size_t) l * (NEXP / 32) : nullptr, s);   // FNX_EXPERT_MASK (maska_patch.py)
-+                    k_pf_top10<<<(C + 7) / 8, 256, 0, s>>>(p.logits, C, p.topi, p.topw);
-+                    if (memo_ && &b == cb_[0]) memo_put_rows(p.topi, C, pos0[(size_t) j], l, memo_, memo_cap_, s);   // memo_patch.py
-+                    ckc(cudaMemsetAsync(p.cnt, 0, NEXP * 4, s), "cnt");
-+                    k_pf_count<<<(P + 255) / 256, 256, 0, s>>>(p.topi, P, p.cnt);
-+                    if (b.route_cnt) route_count(p.topi, P, b.route_cnt + (size_t) (NL + l) * NEXP, s);
-+                    k_pf_jobbase<<<1, NEXP, 0, s>>>(p.cnt, p.jbase, p.njobs);
-+                    k_pf_fill<<<NEXP, PF_FILL_THREADS, 0, s>>>(p.topi, P, p.cnt, p.jbase, p.jobs_gu, p.jobs_dn);
-+                    pf_prof_mark(b, PF_GU);
-+                    if (p.moe_q8) {
++                    if (lph == 0) {   // edge0_patch6.py: the router and the jobs in the first pass
++                        if (spl) ckc(cudaStreamWaitEvent(s, p.ev_agd[j], 0), "mixed gathered");
++                        p.mixed = p.mixk[j & 1];
++                        k_f32_f16<<<grid_for((size_t) C * N), 256, 0, s>>>(p.mixed, (size_t) C * N, p.xh);   // the f16 of mixed
++                        if (p.moe_q8) quantize_q8_1(p.mixed, p.xq, N, C, s);
++                        pf_prof_mark(b, PF_ROUTER);
++                        k_bf16_f32<<<grid_for((size_t) (NEXP + 1) * N), 256, 0, s>>>(L.router, (size_t) (NEXP + 1) * N, p.router32);
++                        pf_sgemm(p, p.router32, NEXP + 1, N, p.mixed, C, p.logits, NEXP + 1);
++                        expert_mask_logits(p.logits, C, NEXP + 1, b.ekeep ? b.ekeep + (size_t) l * (NEXP / 32) : nullptr, s);   // FNX_EXPERT_MASK (maska_patch.py)
++                        k_pf_top10<<<(C + 7) / 8, 256, 0, s>>>(p.logits, C, p.topi, p.topw);
++                        if (memo_ && &b == cb_[0]) memo_put_rows(p.topi, C, pos0[(size_t) j], l, memo_, memo_cap_, s);   // memo_patch.py
++                        ckc(cudaMemsetAsync(p.cnt, 0, NEXP * 4, s), "cnt");
++                        k_pf_count<<<(P + 255) / 256, 256, 0, s>>>(p.topi, P, p.cnt);
++                        if (b.route_cnt) route_count(p.topi, P, b.route_cnt + (size_t) (NL + l) * NEXP, s);
++                        k_pf_jobbase<<<1, NEXP, 0, s>>>(p.cnt, p.jbase, p.njobs);
++                        k_pf_fill<<<NEXP, PF_FILL_THREADS, 0, s>>>(p.topi, P, p.cnt, p.jbase, p.jobs_gu, p.jobs_dn);
++                        pf_prof_mark(b, PF_GU);
++                    }
++                    if (L.lat_d.q) {   // edge0_patch.py: Edge0's latent MoE (D, the experts on rows t * LAT_G + label, z, U)
++                        if (p.moe_q8 || !p.lat16) throw std::runtime_error("FNX_LATENT: the prompt path needs the f16 expert kernels (FNX_PF_MOE_Q8=0)");
++                        static const bool lchk = std::getenv("FNX_LAT_CHECK") != nullptr;   // edge0_patch2.py
++                        // edge0_patch6.py, FNX_LAT_SPLIT: pass 0 D (this card's 4 groups) and its exchange, pass 1 the experts, z and its exchange, pass 2
++                        // U (this card's half); without it one pass does all
++                        const int lh = w.ff0 / ffs, lp1 = g_lat_split ? 1 : 0;
++                        if (lph == 0) {
++                            if (lchk) lat_check(p.xh, (size_t) C * N, true, 1, (int) l, C, s);
++                            if (g_lat_split) {   // this card's 4 groups of D, the other card's 4 by the copy engine
++                                lat_dense(p, L.lat_d, LAT_HW, N, p.xh, C, p.lat16 + (size_t) lh * LAT_HW, true, LAT_W, s);
++                                pf_lat_swap(p, lh, C, false, s);
++                            } else lat_dense(p, L.lat_d, LAT_W, N, p.xh, C, p.lat16, true, LAT_W, s);   // xh: the f16 of mixed
++                        }
++                        if (lph == lp1) {
++                            if (lchk) lat_check(p.lat16, (size_t) C * LAT_W, true, 2, (int) l, C, s);
++                            lat_bigrows(p.jobs_gu, p.njobs, pf_jobs_, L.lat_lab, s);
++                            moe_gate_up_mma(gu_e, L.gu_e_stride, p.jobs_gu, p.njobs, pf_jobs_, reinterpret_cast<const uint16_t*>(p.lat16), p.gu, s);
++                            if (lchk) lat_check(p.gu, (size_t) P * 2 * ffs, false, 4, (int) l, C, s);
++                            lat_swiglu_h16(p.gu, ffs, P, p.h16, p.topi, L.lat_esc, nullptr, s);
++                            if (lchk) lat_check(p.h16, (size_t) P * ffs, true, 8, (int) l, C, s);
++                            pf_prof_mark(b, PF_DOWN);
++                            moe_down_mma(down_e, L.down_e_stride, p.jobs_dn, p.njobs, pf_jobs_, p.h16, p.part, s);
++                            if (lchk) lat_check(p.part, (size_t) P * LAT_ELL, false, 16, (int) l, C, s);
++                            lat_z16(p.part, p.topi, p.topw, L.lat_lab, L.lat_esc, C, reinterpret_cast<uint16_t*>(p.lat16), s);
++                            if (lchk) lat_check(p.lat16, (size_t) C * LAT_W, true, 32, (int) l, C, s);
++                            if (g_lat_split) pf_lat_swap(p, lh, C, true, s);   // both cards' parts of z for this card's groups
++                        }
++                        if (lph == lph_n - 1) {
++                            if (g_lat_split) {   // z of this card's groups, then its half of U
++                                pf_lat_zadd(p, lh, C, s);
++                                lat_dense(p, L.lat_u, N, LAT_HW, p.lrx, C, p.latu, false, N, s);
++                            } else lat_dense(p, L.lat_u, N, LAT_W, p.lat16, C, p.latu, false, N, s);
++                            if (lchk) lat_check(p.latu, (size_t) C * N, false, 64, (int) l, C, s);
++                            lat_dump(p, (int) l, C, s);   // edge0_patch4.py (FNX_LAT_DUMP)
++                        }
++                    } else if (p.moe_q8) {
 +                        moe_gate_up_big(gu_e, L.gu_e_stride, p.jobs_gu, p.njobs, pf_jobs_, p.xq, p.gu, s);
 +                        moe_down_big(down_e, L.down_e_stride, p.jobs_dn, p.njobs, pf_jobs_, p.gu, p.part, s);
 +                    } else {
@@ -9160,19 +9909,22 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
 +                        pf_prof_mark(b, PF_DOWN);
 +                        moe_down_mma(down_e, L.down_e_stride, p.jobs_dn, p.njobs, pf_jobs_, p.h16, p.part, s);
 +                    }
-+                    if (staging && j == nk - 1) ckc(cudaEventRecord(p.ev_done[l & 1], s), "stage done");
-+                    pf_prof_mark(b, PF_SHARED);
-+                    pf_dense_xh(p, L.sh_gu.s, 2 * ffs, N, C, p.shg, 2 * ffs, s);   // xh: still the f16 of mixed
-+                    k_pf_swiglu<<<grid_for((size_t) C * ffs), 256, 0, s>>>(p.shg, ffs, C, p.shh);
-+                    k_q8s_f16<<<grid_for((size_t) N * ffs), 256, 0, s>>>(L.sh_down.s.q, L.sh_down.s.d, (size_t) N * ffs, p.wh);
-+                    pf_gemm(p, p.wh, N, ffs, p.shh, C, p.part + (size_t) P * N, N, s);
-+                    ckc(cudaGetLastError(), "ffn");
++                    if (lph == lph_n - 1) {   // edge0_patch6.py: the rest in the last pass
++                        if (staging && j == nk - 1) ckc(cudaEventRecord(p.ev_done[l & 1], s), "stage done");
++                        pf_prof_mark(b, PF_SHARED);
++                        pf_dense_xh(p, L.sh_gu.s, 2 * ffs, N, C, p.shg, 2 * ffs, s);   // xh: still the f16 of mixed
++                        k_pf_swiglu<<<grid_for((size_t) C * ffs), 256, 0, s>>>(p.shg, ffs, C, p.shh);
++                        k_q8s_f16<<<grid_for((size_t) N * ffs), 256, 0, s>>>(L.sh_down.s.q, L.sh_down.s.d, (size_t) N * ffs, p.wh);
++                        pf_gemm(p, p.wh, N, ffs, p.shh, C, p.part + (size_t) P * N, N, s);
++                        ckc(cudaGetLastError(), "ffn");
++                    }
 +                });
-+                each([&](int c, CardBuf& b, const CardW&, Pf& p) {
++                each([&](int c, CardBuf& b, const CardW& w, Pf& p) {
 +                    RingMoe m;
 +                    m.part = p.part;
 +                    m.topw = p.topw;
 +                    m.logits = p.logits;
++                    if (w.L[l].lat_d.q) m.lat = p.latu;   // edge0_patch3.py
 +                    ring_async(c, b, p, p.bo_f, &m, j, p.ev_rf[j], C);
 +                });
 +            };
@@ -9191,7 +9943,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      for (int l = 0; l < NL; ++l) {
          if (staging && l + 1 < NL - 1) stage_in(l + 1);   // the last layer runs no experts
          for (int j = 0; j < nk; ++j) {
-@@ -1180,6 +1698,7 @@
+@@ -1180,6 +1887,7 @@
                  const LayerW& L = w.L[l];
                  cudaStream_t s = b.st;
                  if (pending && p.overlap) ckc(cudaStreamWaitEvent(s, p.ev_rf[j], 0), "ffn sum");
@@ -9199,7 +9951,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
                  bool apply = pending;
                  if (l == PLE_LAYER) {
                      ckc(cudaMemcpyAsync(p.ple_emb, pf_ple_[set], (size_t) C * N * 4, cudaMemcpyHostToDevice, s), "ple");
-@@ -1194,23 +1713,35 @@
+@@ -1194,23 +1902,35 @@
                                   w.ple_norm_query, w.ple_norm_conv, w.ple_conv, b.ple_hist, b.ple_hsnap, Tg, eps, s, p.ple_tmp);
                      }
                  }
@@ -9235,7 +9987,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
                      // the indexer: bf16 projections as f32 (llama.cpp's choice past 8 rows on a V100)
                      k_bf16_f32<<<grid_for((size_t) 512 * N), 256, 0, s>>>(L.idx_wq, (size_t) 512 * N, p.widx);
                      k_bf16_f32<<<grid_for((size_t) 128 * N), 256, 0, s>>>(L.idx_wk, (size_t) 128 * N, p.widx + (size_t) 512 * N);
-@@ -1218,6 +1749,7 @@
+@@ -1218,6 +1938,7 @@
                      qsa_index(p.yidx, L.idx_qn, L.idx_kn, b.qsa_ring[l], b.qsa_pooled[l], b.pg, p.qidx, p.ctl, C, eps, rope_of(b.mrope), s);
                      // groups of rows (each with the position and tag of its first MAXT group) for QSA's block selection:
                      // qsa_pf_rows (FNX_PF_QSA_ROWS), or attn_rows() when the decode attention takes the groups too
@@ -9243,7 +9995,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
                      const int AR = p.attn_dec ? attn_rows() : p.qsa_pf_rows;
                      for (int g = 0; g * AR < C; ++g) {
                          const int r0 = g * AR, Tg = std::min(AR, C - r0);
-@@ -1229,17 +1761,20 @@
+@@ -1229,17 +1950,20 @@
                               (const unsigned*) (gctl + 1), 128 + l, gctl, Tg, b.att_part, s, p.cells + (size_t) r0 * qsa_maxsel(),
                               p.ncells + r0);
                      }
@@ -9264,27 +10016,85 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
                  if (p.ring_sm) ring_sum(p.ring, p.bo_a, C, (const unsigned*) (p.ctl + 1), 2 * l, b.st);
                  else if (p.overlap) {
                      if (!is_attn(l) || p.attn_dec) ring_async(c, b, p, p.bo_a, nullptr, j, p.ev_ra[j], C);   // else finish_att's
-@@ -1271,25 +1806,33 @@
+@@ -1262,45 +1986,94 @@
+                 continue;
+             }
+             // ---- FFN half
+-            each([&](int, CardBuf& b, const CardW& w, Pf& p) {
++            const int lph_n = g_lat_split && m_.cards[0].L[l].lat_d.q ? 3 : 1;   // edge0_patch6.py: FNX_LAT_SPLIT's passes
++            for (int lph = 0; lph < lph_n; ++lph) each([&](int, CardBuf& b, const CardW& w, Pf& p) {
+                 const LayerW& L = w.L[l];
+                 cudaStream_t s = b.st;
+                 const int P = C * TOPK, ffs = w.ff1 - w.ff0;
+                 DW gu_e = L.gu_e, down_e = L.down_e;
+                 if (staging) {
                      gu_e.ep = p.ep_gu + (size_t) l * NEXP, down_e.ep = p.ep_dn + (size_t) l * NEXP;
-                     if (j == 0) ckc(cudaStreamWaitEvent(s, p.ev_ready[l & 1], 0), "stage in");
+-                    if (j == 0) ckc(cudaStreamWaitEvent(s, p.ev_ready[l & 1], 0), "stage in");
++                    if (j == 0 && lph == 0) ckc(cudaStreamWaitEvent(s, p.ev_ready[l & 1], 0), "stage in");
                  }
-+                pf_prof_mark(b, PF_HC);
-                 pf_hc_read(p, p.R, p.bo_a, p.inj_a, L.hc_norm[1], L.hc_down[1], L.hc_up[1], L.hc_inj[1], eps, p.mixed, p.inj_f, C, s);
-                 if (p.moe_q8) quantize_q8_1(p.mixed, p.xq, N, C, s);   // else xh holds the hc read's f16 of mixed
+-                pf_hc_read(p, p.R, p.bo_a, p.inj_a, L.hc_norm[1], L.hc_down[1], L.hc_up[1], L.hc_inj[1], eps, p.mixed, p.inj_f, C, s);
+-                if (p.moe_q8) quantize_q8_1(p.mixed, p.xq, N, C, s);   // else xh holds the hc read's f16 of mixed
 -                pf_sgemm(p, L.router, NEXP + 1, N, p.mixed, C, p.logits, NEXP + 1);
-+                pf_prof_mark(b, PF_ROUTER);
-+                k_bf16_f32<<<grid_for((size_t) (NEXP + 1) * N), 256, 0, s>>>(L.router, (size_t) (NEXP + 1) * N, p.router32);
-+                pf_sgemm(p, p.router32, NEXP + 1, N, p.mixed, C, p.logits, NEXP + 1);
-+                expert_mask_logits(p.logits, C, NEXP + 1, b.ekeep ? b.ekeep + (size_t) l * (NEXP / 32) : nullptr, s);   // FNX_EXPERT_MASK (maska_patch.py)
-                 k_pf_top10<<<(C + 7) / 8, 256, 0, s>>>(p.logits, C, p.topi, p.topw);
-+                if (memo_ && &b == cb_[0]) memo_put_rows(p.topi, C, pos0[(size_t) j], l, memo_, memo_cap_, s);   // memo_patch.py
-                 ckc(cudaMemsetAsync(p.cnt, 0, NEXP * 4, s), "cnt");
-                 k_pf_count<<<(P + 255) / 256, 256, 0, s>>>(p.topi, P, p.cnt);
-                 if (b.route_cnt) route_count(p.topi, P, b.route_cnt + (size_t) (NL + l) * NEXP, s);
-                 k_pf_jobbase<<<1, NEXP, 0, s>>>(p.cnt, p.jbase, p.njobs);
-                 k_pf_fill<<<NEXP, PF_FILL_THREADS, 0, s>>>(p.topi, P, p.cnt, p.jbase, p.jobs_gu, p.jobs_dn);
-+                pf_prof_mark(b, PF_GU);
-                 if (p.moe_q8) {
+-                k_pf_top10<<<(C + 7) / 8, 256, 0, s>>>(p.logits, C, p.topi, p.topw);
+-                ckc(cudaMemsetAsync(p.cnt, 0, NEXP * 4, s), "cnt");
+-                k_pf_count<<<(P + 255) / 256, 256, 0, s>>>(p.topi, P, p.cnt);
+-                if (b.route_cnt) route_count(p.topi, P, b.route_cnt + (size_t) (NL + l) * NEXP, s);
+-                k_pf_jobbase<<<1, NEXP, 0, s>>>(p.cnt, p.jbase, p.njobs);
+-                k_pf_fill<<<NEXP, PF_FILL_THREADS, 0, s>>>(p.topi, P, p.cnt, p.jbase, p.jobs_gu, p.jobs_dn);
+-                if (p.moe_q8) {
++                if (lph == 0) {   // edge0_patch6.py: the router and the jobs in the first pass
++                    pf_prof_mark(b, PF_HC);
++                    pf_hc_read(p, p.R, p.bo_a, p.inj_a, L.hc_norm[1], L.hc_down[1], L.hc_up[1], L.hc_inj[1], eps, p.mixed, p.inj_f, C, s);
++                    if (p.moe_q8) quantize_q8_1(p.mixed, p.xq, N, C, s);   // else xh holds the hc read's f16 of mixed
++                    pf_prof_mark(b, PF_ROUTER);
++                    k_bf16_f32<<<grid_for((size_t) (NEXP + 1) * N), 256, 0, s>>>(L.router, (size_t) (NEXP + 1) * N, p.router32);
++                    pf_sgemm(p, p.router32, NEXP + 1, N, p.mixed, C, p.logits, NEXP + 1);
++                    expert_mask_logits(p.logits, C, NEXP + 1, b.ekeep ? b.ekeep + (size_t) l * (NEXP / 32) : nullptr, s);   // FNX_EXPERT_MASK (maska_patch.py)
++                    k_pf_top10<<<(C + 7) / 8, 256, 0, s>>>(p.logits, C, p.topi, p.topw);
++                    if (memo_ && &b == cb_[0]) memo_put_rows(p.topi, C, pos0[(size_t) j], l, memo_, memo_cap_, s);   // memo_patch.py
++                    ckc(cudaMemsetAsync(p.cnt, 0, NEXP * 4, s), "cnt");
++                    k_pf_count<<<(P + 255) / 256, 256, 0, s>>>(p.topi, P, p.cnt);
++                    if (b.route_cnt) route_count(p.topi, P, b.route_cnt + (size_t) (NL + l) * NEXP, s);
++                    k_pf_jobbase<<<1, NEXP, 0, s>>>(p.cnt, p.jbase, p.njobs);
++                    k_pf_fill<<<NEXP, PF_FILL_THREADS, 0, s>>>(p.topi, P, p.cnt, p.jbase, p.jobs_gu, p.jobs_dn);
++                    pf_prof_mark(b, PF_GU);
++                }
++                if (L.lat_d.q) {   // edge0_patch.py: Edge0's latent MoE (D, the experts on rows t * LAT_G + label, z, U)
++                    if (p.moe_q8 || !p.lat16) throw std::runtime_error("FNX_LATENT: the prompt path needs the f16 expert kernels (FNX_PF_MOE_Q8=0)");
++                    static const bool lchk = std::getenv("FNX_LAT_CHECK") != nullptr;   // edge0_patch2.py
++                    // edge0_patch6.py, FNX_LAT_SPLIT: pass 0 D (this card's 4 groups) and its exchange, pass 1 the experts, z and its exchange, pass 2
++                    // U (this card's half); without it one pass does all
++                    const int lh = w.ff0 / ffs, lp1 = g_lat_split ? 1 : 0;
++                    if (lph == 0) {
++                        if (lchk) lat_check(p.xh, (size_t) C * N, true, 1, (int) l, C, s);
++                        if (g_lat_split) {   // this card's 4 groups of D, the other card's 4 by the copy engine
++                            lat_dense(p, L.lat_d, LAT_HW, N, p.xh, C, p.lat16 + (size_t) lh * LAT_HW, true, LAT_W, s);
++                            pf_lat_swap(p, lh, C, false, s);
++                        } else lat_dense(p, L.lat_d, LAT_W, N, p.xh, C, p.lat16, true, LAT_W, s);   // xh: the f16 of mixed
++                    }
++                    if (lph == lp1) {
++                        if (lchk) lat_check(p.lat16, (size_t) C * LAT_W, true, 2, (int) l, C, s);
++                        lat_bigrows(p.jobs_gu, p.njobs, pf_jobs_, L.lat_lab, s);
++                        moe_gate_up_mma(gu_e, L.gu_e_stride, p.jobs_gu, p.njobs, pf_jobs_, reinterpret_cast<const uint16_t*>(p.lat16), p.gu, s);
++                        if (lchk) lat_check(p.gu, (size_t) P * 2 * ffs, false, 4, (int) l, C, s);
++                        lat_swiglu_h16(p.gu, ffs, P, p.h16, p.topi, L.lat_esc, nullptr, s);
++                        if (lchk) lat_check(p.h16, (size_t) P * ffs, true, 8, (int) l, C, s);
++                        pf_prof_mark(b, PF_DOWN);
++                        moe_down_mma(down_e, L.down_e_stride, p.jobs_dn, p.njobs, pf_jobs_, p.h16, p.part, s);
++                        if (lchk) lat_check(p.part, (size_t) P * LAT_ELL, false, 16, (int) l, C, s);
++                        lat_z16(p.part, p.topi, p.topw, L.lat_lab, L.lat_esc, C, reinterpret_cast<uint16_t*>(p.lat16), s);
++                        if (lchk) lat_check(p.lat16, (size_t) C * LAT_W, true, 32, (int) l, C, s);
++                        if (g_lat_split) pf_lat_swap(p, lh, C, true, s);   // both cards' parts of z for this card's groups
++                    }
++                    if (lph == lph_n - 1) {
++                        if (g_lat_split) {   // z of this card's groups, then its half of U
++                            pf_lat_zadd(p, lh, C, s);
++                            lat_dense(p, L.lat_u, N, LAT_HW, p.lrx, C, p.latu, false, N, s);
++                        } else lat_dense(p, L.lat_u, N, LAT_W, p.lat16, C, p.latu, false, N, s);
++                        if (lchk) lat_check(p.latu, (size_t) C * N, false, 64, (int) l, C, s);
++                        lat_dump(p, (int) l, C, s);   // edge0_patch4.py (FNX_LAT_DUMP)
++                    }
++                } else if (p.moe_q8) {
                      moe_gate_up_big(gu_e, L.gu_e_stride, p.jobs_gu, p.njobs, pf_jobs_, p.xq, p.gu, s);
                      moe_down_big(down_e, L.down_e_stride, p.jobs_dn, p.njobs, pf_jobs_, p.gu, p.part, s);
                  } else {
@@ -9293,13 +10103,35 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
 +                    pf_prof_mark(b, PF_DOWN);
                      moe_down_mma(down_e, L.down_e_stride, p.jobs_dn, p.njobs, pf_jobs_, p.h16, p.part, s);
                  }
-                 if (staging && j == nk - 1) ckc(cudaEventRecord(p.ev_done[l & 1], s), "stage done");
-                 // the shared expert: rows P + t of part
-+                pf_prof_mark(b, PF_SHARED);
-                 pf_dense_xh(p, L.sh_gu.s, 2 * ffs, N, C, p.shg, 2 * ffs, s);   // xh: still the f16 of mixed
-                 k_pf_swiglu<<<grid_for((size_t) C * ffs), 256, 0, s>>>(p.shg, ffs, C, p.shh);
-                 k_q8s_f16<<<grid_for((size_t) N * ffs), 256, 0, s>>>(L.sh_down.s.q, L.sh_down.s.d, (size_t) N * ffs, p.wh);
-@@ -1308,14 +1851,19 @@
+-                if (staging && j == nk - 1) ckc(cudaEventRecord(p.ev_done[l & 1], s), "stage done");
+-                // the shared expert: rows P + t of part
+-                pf_dense_xh(p, L.sh_gu.s, 2 * ffs, N, C, p.shg, 2 * ffs, s);   // xh: still the f16 of mixed
+-                k_pf_swiglu<<<grid_for((size_t) C * ffs), 256, 0, s>>>(p.shg, ffs, C, p.shh);
+-                k_q8s_f16<<<grid_for((size_t) N * ffs), 256, 0, s>>>(L.sh_down.s.q, L.sh_down.s.d, (size_t) N * ffs, p.wh);
+-                pf_gemm(p, p.wh, N, ffs, p.shh, C, p.part + (size_t) P * N, N, s);
+-                ckc(cudaGetLastError(), "ffn");
++                if (lph == lph_n - 1) {   // edge0_patch6.py: the rest in the last pass
++                    if (staging && j == nk - 1) ckc(cudaEventRecord(p.ev_done[l & 1], s), "stage done");
++                    // the shared expert: rows P + t of part
++                    pf_prof_mark(b, PF_SHARED);
++                    pf_dense_xh(p, L.sh_gu.s, 2 * ffs, N, C, p.shg, 2 * ffs, s);   // xh: still the f16 of mixed
++                    k_pf_swiglu<<<grid_for((size_t) C * ffs), 256, 0, s>>>(p.shg, ffs, C, p.shh);
++                    k_q8s_f16<<<grid_for((size_t) N * ffs), 256, 0, s>>>(L.sh_down.s.q, L.sh_down.s.d, (size_t) N * ffs, p.wh);
++                    pf_gemm(p, p.wh, N, ffs, p.shh, C, p.part + (size_t) P * N, N, s);
++                    ckc(cudaGetLastError(), "ffn");
++                }
+             });
+-            each([&](int c, CardBuf& b, const CardW&, Pf& p) {
++            each([&](int c, CardBuf& b, const CardW& w, Pf& p) {
+                 RingMoe m;
+                 m.part = p.part;
+                 m.topw = p.topw;
+                 m.logits = p.logits;
++                if (w.L[l].lat_d.q) m.lat = p.latu;   // edge0_patch.py
+                 if (p.ring_sm) ring_sum(p.ring, p.bo_f, C, (const unsigned*) (p.ctl + 1), 2 * l + 1, b.st, m);
+                 else if (p.overlap) ring_async(c, b, p, p.bo_f, &m, j, p.ev_rf[j], C);
+                 else pf_ring(p, c, p.bo_f, C, &m, b.ring.err, b.st);
+@@ -1308,14 +2081,19 @@
          }
      }
      static const bool draft8 = env_flag("FNX_PF_DRAFT8");
@@ -9320,7 +10152,7 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      unsigned err = 0;
      // bounded: a copy-engine ring step waits on its flag without a timeout of its own
      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
-@@ -1349,7 +1897,18 @@
+@@ -1349,7 +2127,18 @@
          }
      use(0);
      for (const PfChunk& c : chunks) history_.insert(history_.end(), c.tokens.begin(), c.tokens.end());
@@ -9339,9 +10171,9 @@ diff -ruN a/src/prefill.cu b/src/prefill.cu
      static const bool timing = env_flag("FNX_PF_TIMING");
      if (timing) {
          std::fprintf(stderr, "prefill pass at %d: %d chunks, %d rows in %.1f ms (embed + upload %.1f ms, enqueued in %.1f ms, draft layer %.1f ms)",
-diff -ruN a/src/qsa.cuh b/src/qsa.cuh
---- a/src/qsa.cuh	2026-11-13 16:22:57.889828300 +0100
-+++ b/src/qsa.cuh	2026-11-13 16:23:07.936224600 +0100
+diff -ruN -x data a/src/qsa.cuh b/src/qsa.cuh
+--- a/src/qsa.cuh	2026-11-15 06:43:51.807618400 +0100
++++ b/src/qsa.cuh	2026-11-15 06:43:52.257719200 +0100
 @@ -155,6 +155,126 @@
      scores[(size_t) t * max_pools + j] = s;
  }
@@ -9822,9 +10654,9 @@ diff -ruN a/src/qsa.cuh b/src/qsa.cuh
 +}
 +
  }  // namespace
-diff -ruN a/src/session.cpp b/src/session.cpp
---- a/src/session.cpp	2026-11-13 16:22:57.984835500 +0100
-+++ b/src/session.cpp	2026-11-13 16:23:08.036055500 +0100
+diff -ruN -x data a/src/session.cpp b/src/session.cpp
+--- a/src/session.cpp	2026-11-15 06:43:51.819581800 +0100
++++ b/src/session.cpp	2026-11-15 06:43:52.303073200 +0100
 @@ -7,6 +7,7 @@
  #include <chrono>
  #include <cstdio>
@@ -10109,9 +10941,9 @@ diff -ruN a/src/session.cpp b/src/session.cpp
      return fin;
  }
  
-diff -ruN a/src/session.hpp b/src/session.hpp
---- a/src/session.hpp	2026-11-13 16:22:57.955679300 +0100
-+++ b/src/session.hpp	2026-11-13 16:23:07.706556200 +0100
+diff -ruN -x data a/src/session.hpp b/src/session.hpp
+--- a/src/session.hpp	2026-11-15 06:43:51.823613900 +0100
++++ b/src/session.hpp	2026-11-15 06:43:52.213627500 +0100
 @@ -21,6 +21,7 @@
      float pen_repeat = 1.f, pen_freq = 0.f, pen_present = 0.f;
      int pen_last_n = 64;
@@ -10165,9 +10997,9 @@ diff -ruN a/src/session.hpp b/src/session.hpp
  };
  
  }  // namespace fnx
-diff -ruN a/src/tensor_convert.hpp b/src/tensor_convert.hpp
---- a/src/tensor_convert.hpp	2026-11-13 16:22:58.013459200 +0100
-+++ b/src/tensor_convert.hpp	2026-11-13 16:23:07.878916900 +0100
+diff -ruN -x data a/src/tensor_convert.hpp b/src/tensor_convert.hpp
+--- a/src/tensor_convert.hpp	2026-11-15 06:43:51.850373400 +0100
++++ b/src/tensor_convert.hpp	2026-11-15 06:43:52.249556600 +0100
 @@ -59,6 +59,75 @@
      static const int8_t k[16] = {-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
      return k;
@@ -10279,9 +11111,9 @@ diff -ruN a/src/tensor_convert.hpp b/src/tensor_convert.hpp
      }
      throw std::runtime_error("tensor_convert: no reader for ggml type " + std::to_string(type));
  }
-diff -ruN a/src/topk.cuh b/src/topk.cuh
---- a/src/topk.cuh	2026-11-13 16:22:58.098070400 +0100
-+++ b/src/topk.cuh	2026-11-13 16:23:07.835736600 +0100
+diff -ruN -x data a/src/topk.cuh b/src/topk.cuh
+--- a/src/topk.cuh	2026-11-15 06:43:51.838415200 +0100
++++ b/src/topk.cuh	2026-11-15 06:43:52.247103700 +0100
 @@ -1,5 +1,5 @@
  // The sampler's candidates (included by kernels.cu): per verify row, this card's slice of the head's logits with the
 -// row's penalties applied (llama.cpp's penalties stage, as Strata applies it: repeat multiplies a non-positive logit
@@ -10330,9 +11162,9 @@ diff -ruN a/src/topk.cuh b/src/topk.cuh
          }
          __syncthreads();
          if (tid == 0) {
-diff -ruN a/tools/sfnx.cpp b/tools/sfnx.cpp
---- a/tools/sfnx.cpp	2026-11-13 16:22:58.685260600 +0100
-+++ b/tools/sfnx.cpp	2026-11-13 16:23:08.168031400 +0100
+diff -ruN -x data a/tools/sfnx.cpp b/tools/sfnx.cpp
+--- a/tools/sfnx.cpp	2026-11-15 06:43:51.958707200 +0100
++++ b/tools/sfnx.cpp	2026-11-15 06:43:52.333196500 +0100
 @@ -18,6 +18,7 @@
  // cancel, then BADM <slot> 0), and so does a STOP for the request decoding in a slot; BYIELD <slot> ends its prompt
  // read at the next chunk (YIELDED <slot> <read>). STOP, BSTOP and BYIELD act on the requests whose lines came before

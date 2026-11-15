@@ -909,8 +909,11 @@ __device__ __forceinline__ float2 add2(float2 a, float2 b) { return make_float2(
 __device__ __forceinline__ float ring_x(const float* x, const RingMoe& m, int T, int t, int i) {
     if (!m.part) return x[(size_t) t * N + i];
     float s = 0.f;
+    if (m.lat) s = m.lat[(size_t) t * N + i];   // edge0_patch.py
+    else {
 #pragma unroll
     for (int k = 0; k < TOPK; ++k) s = fmaf(m.topw[t * TOPK + k], m.part[((size_t) t * TOPK + k) * N + i], s);
+    }
     return fmaf(sigm(m.logits[(size_t) t * (NEXP + 1) + NEXP]), m.part[((size_t) T * TOPK + t) * N + i], s);
 }
 __device__ __forceinline__ float2 ring_x2(const float* x, const RingMoe& m, int T, int t, int p) {
@@ -2229,6 +2232,122 @@ void expert_mask_logits(float* logits, int rows, int stride, const unsigned* kee
     if (!keep || rows <= 0) return;
     k_expert_mask<<<(rows * NEXP + 255) / 256, 256, 0, (cudaStream_t) st>>>(logits, rows, stride, keep);
     ck_launch("expert_mask_logits");
+}
+// ---- edge0_patch.py: Edge0's latent MoE (FNX_LATENT). A marked job (w = ~expert, the cache's phase 2) keeps its expert in ~w.
+template <typename J>
+__global__ void k_lat_rows(J* jobs, const int* njobs, const int* lab) {
+    for (int j = blockIdx.x; j < njobs[0]; j += gridDim.x) {
+        J& b = jobs[j];
+        const int g = lab[b.w >= 0 ? b.w : ~b.w];
+        for (int k = threadIdx.x; k < b.n; k += blockDim.x) b.y[k] = b.y[k] * LAT_G + g;
+    }
+}
+void lat_rows(Job* jobs_gu, const int* njobs, const int* labels, void* st) {
+    k_lat_rows<Job><<<MAXT * TOPK, 32, 0, (cudaStream_t) st>>>(jobs_gu, njobs, labels);
+    ck_launch("lat_rows");
+}
+void lat_bigrows(BigJob* jobs_gu, const int* njobs, int njobs_cap, const int* labels, void* st) {
+    k_lat_rows<BigJob><<<std::max(1, std::min(njobs_cap, 1024)), 64, 0, (cudaStream_t) st>>>(jobs_gu, njobs, labels);
+    ck_launch("lat_bigrows");
+}
+__global__ void k_lat_swiglu(const float* __restrict__ gu, int ffs, int P, __half* __restrict__ h, const int* __restrict__ topi,
+                             const float* __restrict__ esc, const int* __restrict__ list) {
+    if (list && list[0] == 0) return;
+    for (size_t e = blockIdx.x * (size_t) blockDim.x + threadIdx.x; e < (size_t) P * ffs; e += (size_t) gridDim.x * blockDim.x) {
+        const size_t r = e / ffs, i = e % ffs;
+        const float* sc = esc + (size_t) topi[r] * 4;
+        const float g = sc[0] * gu[r * 2 * ffs + i];
+        h[e] = __float2half(g / (1.0f + __expf(-g)) * (sc[1] * gu[r * 2 * ffs + ffs + i]));
+    }
+}
+void lat_swiglu_h16(const float* gu, int ffs, int P, uint16_t* h16, const int* topi, const float* esc, const int* list, void* st) {
+    k_lat_swiglu<<<(unsigned) std::min<size_t>(4096, ((size_t) P * ffs + 255) / 256), 256, 0, (cudaStream_t) st>>>(
+        gu, ffs, P, reinterpret_cast<__half*>(h16), topi, esc, list);
+    ck_launch("lat_swiglu_h16");
+}
+// z[t][g][c] = sum over row t's picks k in group g of topw[t][k] * s_down[e] * part[t * TOPK + k][c] (down's rows of LAT_ELL)
+template <typename O>
+__global__ void k_lat_z(const float* __restrict__ part, const int* __restrict__ topi, const float* __restrict__ topw,
+                        const int* __restrict__ lab, const float* __restrict__ esc, O* __restrict__ z) {
+    const int t = blockIdx.y, j = blockIdx.x * blockDim.x + threadIdx.x;
+    if (j >= LAT_W) return;
+    const int g = j / LAT_ELL, c = j % LAT_ELL;
+    float s = 0.f;
+#pragma unroll
+    for (int k = 0; k < TOPK; ++k) {
+        const int e = topi[t * TOPK + k];
+        if (lab[e] == g) s = fmaf(topw[t * TOPK + k] * esc[(size_t) e * 4 + 2], part[((size_t) t * TOPK + k) * LAT_ELL + c], s);
+    }
+    if constexpr (sizeof(O) == 2) z[(size_t) t * LAT_W + j] = __float2half(s);
+    else z[(size_t) t * LAT_W + j] = s;
+}
+void lat_z(const float* part, const int* topi, const float* topw, const int* labels, const float* esc, int T, float* z, void* st) {
+    k_lat_z<float><<<dim3(LAT_W / 256, T), 256, 0, (cudaStream_t) st>>>(part, topi, topw, labels, esc, z);
+    ck_launch("lat_z");
+}
+void lat_z16(const float* part, const int* topi, const float* topw, const int* labels, const float* esc, int T, uint16_t* z, void* st) {
+    k_lat_z<__half><<<dim3(LAT_W / 256, T), 256, 0, (cudaStream_t) st>>>(part, topi, topw, labels, esc, reinterpret_cast<__half*>(z));
+    ck_launch("lat_z16");
+}
+// ---- edge0_patch6.py (FNX_LAT_SPLIT): the latent halves' exchanges in a window, k_ring's words (two f16 values and the tag)
+constexpr int LAT_HP = LAT_HW / 2;   // pairs of a half row
+size_t lat_x_words() { return (size_t) 2 * MAXT * LAT_HP; }
+__device__ __forceinline__ void lat_put(unsigned long long* p, float a, float b, unsigned tag) {
+    const __half2 h = __floats2half2_rn(a, b);
+    *(volatile unsigned long long*) p = (unsigned long long) *reinterpret_cast<const unsigned*>(&h) | ((unsigned long long) tag << 32);
+}
+__device__ __forceinline__ float2 lat_take(const unsigned long long* p, unsigned tag, unsigned* err) {
+    const long long t0 = clock64();
+    unsigned long long w;
+    for (;;) {
+        w = *(const volatile unsigned long long*) p;
+        if ((unsigned) (w >> 32) == tag) break;
+        if (clock64() - t0 > 4000000000LL) { atomicOr(err, 1u); break; }
+    }
+    const unsigned lo = (unsigned) w;
+    return __half22float2(*reinterpret_cast<const __half2*>(&lo));
+}
+// ZS false: x's half h to f16 in out (xl16) and to the other card, the other half from the mailbox into out. ZS true: x's (z's) other half
+// to the other card, then out (zh) = this card's half plus the other card's part. Every word out first: the other card waits for them
+template <bool ZS>
+__global__ void k_lat_x(const float* __restrict__ x, void* __restrict__ out, unsigned long long* in, unsigned long long* next, int T, int h,
+                        const unsigned* tagp, int call, unsigned* err) {
+    const unsigned tag = *tagp * 256u + (unsigned) call + 1u;
+    const size_t set = (size_t) (tag & 1u) * MAXT * LAT_HP;
+    in += set;
+    next += set;
+    const int n = gridDim.x * blockDim.x, tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const int own = h * LAT_HW, oth = (1 - h) * LAT_HW;
+    for (int e = tid; e < T * LAT_HP; e += n) {
+        const int t = e / LAT_HP, i = e % LAT_HP;
+        const float2 v = reinterpret_cast<const float2*>(x + (size_t) t * LAT_W + (ZS ? oth : own))[i];
+        lat_put(next + e, v.x, v.y, tag);
+        if constexpr (!ZS) reinterpret_cast<__half2*>((__half*) out + (size_t) t * LAT_W + own)[i] = __floats2half2_rn(v.x, v.y);
+    }
+    for (int e = tid; e < T * LAT_HP; e += n) {
+        const int t = e / LAT_HP, i = e % LAT_HP;
+        const float2 a = lat_take(in + e, tag, err);
+        if constexpr (ZS) {
+            const float2 o = reinterpret_cast<const float2*>(x + (size_t) t * LAT_W + own)[i];
+            reinterpret_cast<float2*>((float*) out + (size_t) t * LAT_HW)[i] = make_float2(o.x + a.x, o.y + a.y);
+        } else {
+            reinterpret_cast<__half2*>((__half*) out + (size_t) t * LAT_W + oth)[i] = __floats2half2_rn(a.x, a.y);
+        }
+    }
+}
+void lat_xg(const float* x, uint16_t* xl16, unsigned long long* in, unsigned long long* next, int T, int h, const unsigned* tag, int call,
+            unsigned* err, void* st) {
+    ring_call_check(call, "lat_xg");
+    if (T < 1 || T > MAXT || !in || !next) throw std::runtime_error("lat_xg: rows or mailboxes");
+    k_lat_x<false><<<std::max(4, std::min(40, (T * LAT_HP + 255) / 256)), 256, 0, (cudaStream_t) st>>>(x, xl16, in, next, T, h, tag, call, err);
+    ck_launch("lat_xg");
+}
+void lat_zs(const float* z, float* zh, unsigned long long* in, unsigned long long* next, int T, int h, const unsigned* tag, int call,
+            unsigned* err, void* st) {
+    ring_call_check(call, "lat_zs");
+    if (T < 1 || T > MAXT || !in || !next) throw std::runtime_error("lat_zs: rows or mailboxes");
+    k_lat_x<true><<<std::max(4, std::min(40, (T * LAT_HP + 255) / 256)), 256, 0, (cudaStream_t) st>>>(z, zh, in, next, T, h, tag, call, err);
+    ck_launch("lat_zs");
 }
 void router_route(const uint16_t* W, const float* x, float* logits, int T, int* topi, float* topw, Job* jobs_gu, Job* jobs_dn,
                   int* njobs, void* st, const ExpertCache* ec, int layer, int* list, const Q8S* sh_gu, int sh_rows, const void* sh_y,

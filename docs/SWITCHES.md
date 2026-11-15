@@ -88,6 +88,19 @@ has what it gave.
 |---|---|---|---|---|---|
 | `FNX_EXPERT_MASK` | `engine/data/coder_mask.txt` | unset | ours | a file with one line a layer: the layer, then the experts the router may pick (`#` lines are comments; every layer needs at least 10). A dropped expert's router logit becomes −inf wherever a layer's logits are read (the decode windows' router, the prompt path's, the next layer's guesses), so no top 10 or guess takes it, and the ten picks' weights are a softmax over them, as in a pruned model. In placement a dropped expert ranks below every kept one, so `FNX_EXPERT_RAM_GIB` sends the dropped ones to RAM first, the prompt path never stages them and the expert cache never refills a slot with one. The MTP draft layer is not masked. RAM use stays the same: every expert is still loaded | lossy: a different model by design. Unset, the code takes no branch and launches nothing: the same bits (KL 0, 27 of 27 against `bf9c7f1f`) |
 
+## The Edge0-145B profile
+
+`profile/flash-next-edge0-512k.template.json` is the IQ3_S profile with Edge0's files and these switches (`fill_profile.py
+--model edge0`, `setup.sh --model edge0`). README, "Edge0-145B", has what they gave.
+
+| Switch | Edge0 profile | Unset | Origin | What it does | Output effect |
+|---|---|---|---|---|---|
+| `FNX_LATENT` | `MODELS/edge0-145b` | unset | ours | Edge0's latent MoE: from that folder `experts.bin` (the routed experts, NVFP4), `latent_dense_q8.bin` (D and U, Q8_0) and `labels.bin` (each expert's group) go beside the skeleton GGUF given as `--native`. A token's `mixed` row goes through D into 8 groups of 1792 values; each picked expert works on its group's row (gate\|up 640 x 1792, down 1792 x 640), its down output is summed into its group of `z`, and U takes `z` back to 2560. The experts stay split by their ff range across the cards, as Flash-Next's | the model itself. Unset, no latent branch runs: the same bits as `c213636c` (KL 0, 18 of 18, UD-Q4_K_XL at λ 0) |
+| `FNX_LATENT_PLE` | the IQ3_S's second shard | our server's path | ours | the GGUF with the lookup table (`per_layer_token_embd`): Edge0 keeps Flash-Next's, byte for byte, so it is the IQ3_S's second shard | none |
+| `FNX_LAT_SPLIT` | 1 | 0 | ours | D and U by group across the cards: card h holds groups 4h to 4h+3 of both, 1.74 GiB a card less, which goes to experts (9,041 on the cards instead of 7,099). A layer gets two exchanges more: the D rows of the other card's groups, and each card's part of `z` for the other card's groups. Writing: tagged words in host memory, as the engine's own sums; prompts: rows by the copy engine with flags, the FFN half in three passes over the cards (docs/HISTORY.md, 15 Nov) | rounding: the other card's part of `z` comes over as FP16 (a layer recomputed in NumPy in FP64: cosine 0.99992, relative error 1.3 %, as without it) |
+| `FNX_EXPERT_RAM_GIB` | 28 | 3 | Strata | as in the IQ3_S profile; 28 is the lowest at which the engine keeps every slot it sets up (below it the engine moves experts back to RAM itself: at 26.5, 9,017 on the cards) | none |
+| `FNX_MTP_EXPERTS` | `q4_0` | the 2-bit file | Strata | as in the UD-Q4_K_XL profiles: Edge0's draft layer is Flash-Next's, unchanged | none |
+
 ## Our other switches
 
 Off, or at the value the engine picks, unless you set them. None is needed to reproduce our numbers.
@@ -113,6 +126,9 @@ Off, or at the value the engine picks, unless you set them. None is needed to re
 | `FNX_NUMA_EXPERTS` | off | 1: each card's RAM copy of the experts on the memory of the CPU the card hangs from (same bits; IQ3_S and Q4 in the noise) |
 | `FNX_PLE_WARM` | off | 1, with `FNX_PLE_RAM=0`: a thread reads the lookup table once after the load (Q4: writing −20 %, it pushes hot rows out of the page cache) |
 | `FNX_PF_DRAFT_WINDOW` | off | run the draft layer over a prompt's last N rows only |
+| `FNX_LAT_F32` | off | 1, with `FNX_LATENT`: the prompt path's D and U products accumulate in FP32 instead of FP16 (our Slovenian test gave the same score either way, 18 of 30 answers off-language: the model's own weakness, not the arithmetic) |
+| `FNX_LAT_CHECK` | off | 1, with `FNX_LATENT`: after each step of the prompt path's latent MoE, check that every value is finite and below 60,000, and say the layer, chunk and step that is not |
+| `FNX_LAT_DUMP`, `FNX_LAT_DUMP_L` | off, 20 | with `FNX_LATENT`: the first prompt chunk to reach layer `FNX_LAT_DUMP_L` writes each card's input rows, picks, weights and U output into the folder `FNX_LAT_DUMP` (we recomputed the layer from them in NumPy in FP64) |
 | `FNX_RR_TIMES`, `FNX_PA_CHECK`, `FNX_QSA_DUMP`, `FNX_QSA_DUMP_EVERY`, `FNX_QSA_DUMP_MAX`, `FNX_NVPROF_PASS`, `FNX_NVPROF_WIN`, `FNX_NVPROF_WINS` | off | diagnostics: router timings, kernel cross-checks, score dumps, `nvprof` capture of one prompt pass or a run of windows |
 
 ## Strata's switches

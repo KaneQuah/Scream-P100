@@ -55,6 +55,15 @@ constexpr int PLE_LAYER = 1, PLE_ORDERS = 3, PLE_HEADS = 16, PLE_DIM = 160;
 
 namespace fnx {
 
+// Edge0's latent MoE (edge0_patch.py, FNX_LATENT): 8 groups of 1792 latent values a token; each expert's blob in experts.bin, its
+// tail at LAT_TAIL; NVFP4_PRE: the factor the NVFP4 decoders' scales are divided by (the tail scales take it back)
+constexpr int LAT_ELL = 1792, LAT_G = 8, LAT_W = LAT_ELL * LAT_G;
+// edge0_patch6.py, FNX_LAT_SPLIT=1: card h holds groups h LAT_GH .. h LAT_GH + 3 of D and U only (two exchanges a layer bring the rest)
+constexpr int LAT_GH = LAT_G / 2, LAT_HW = LAT_ELL * LAT_GH;
+extern bool g_lat_split;
+constexpr size_t LAT_BLOB = 1935376, LAT_TAIL = 1935360;
+constexpr float NVFP4_PRE = 16.0f;
+
 static_assert(ncard_ok(NCARD), "FNX_NCARD: 2, 3, 4, 6 or 8 cards (card_split.hpp, ncard_ok)");
 // the widest FF slice a card gets: FF in whole 32-value blocks, the first cards one block wider when they do not divide
 // evenly (card_split.hpp's ff_lo / ff_hi, checked against this in Model::Model): what the down kernels' per-card
@@ -157,6 +166,11 @@ struct LayerW {
     DW gu_e, down_e;                   // per expert: [gate; up] [2 ff][N], down [N][ff]; expert stride = rows * row_bytes
     size_t gu_e_stride = 0, down_e_stride = 0;
     DW sh_gu, sh_down;                 // shared expert ff range, gate and up stacked the same way
+    // Edge0's latent MoE (edge0_patch.py, FNX_LATENT): D [LAT_W][N] and U = [U_0 | ... | U_7] [N][LAT_W] (every card the whole
+    // of both), the layer's group labels [NEXP] and each expert's output scales [NEXP][gate, up, down, 0] (times NVFP4_PRE)
+    Q8S lat_d, lat_u;
+    const int* lat_lab = nullptr;
+    const float* lat_esc = nullptr;
 #if FNX_27B
     // pre-norms (copied) and the dense FFN's slice [fd0, fd1): gate rows then up rows; down's input columns
     const float* attn_norm = nullptr;

@@ -1,6 +1,6 @@
 # Patch scripts (a record, not to be run)
 
-The scripts that made the last steps of the port (11-13 November 2026), as they were run on our build machine. Each
+The scripts that made the last steps of the port (11-15 November 2026), as they were run on our build machine. Each
 edits the development tree in place, checks that every edit matched as often as expected, and some save the original
 first. They name that machine's paths (`/srv/build/...`) and our test tools (`mikro/...`), which are not part of this
 release. Their changes are already in `engine/`; [docs/HISTORY.md](../../docs/HISTORY.md) says what each step did, and
@@ -20,7 +20,14 @@ release. Their changes are already in `engine/`; [docs/HISTORY.md](../../docs/HI
 | `numa_patch.py` | `FNX_NUMA_EXPERTS` | experts' RAM copy on the card's CPU (no gain, off) |
 | `warm_patch.py` | `FNX_PLE_WARM` | read the lookup table once after the load (slower, off) |
 | `maska_patch.py` | `FNX_EXPERT_MASK` | build `40ef6d53`: route only to the experts ISTA-DASLab's Coder release keeps |
+| `edge0_patch.py` | `FNX_LATENT`, `FNX_LATENT_PLE` | Edge0-145B: its latent experts, D/U and labels beside the skeleton GGUF, the NVFP4 type in the P100 kernels, the latent branch in writing and in the plain prompt variant |
+| `edge0_patch2.py` | `FNX_LAT_F32`, `FNX_LAT_CHECK` | the prompt path's D and U with FP16 sums like its other products; a finite-value check |
+| `edge0_patch3.py` | none | the latent branch in the overlapped prompt variant too (without it prompts of more than two chunks failed with "ring error 2") |
+| `edge0_patch4.py` | `FNX_LAT_DUMP`, `FNX_LAT_DUMP_L` | one layer's inputs and U output to files, for the NumPy check; build `1949d99c` |
+| `edge0_patch6.py` | `FNX_LAT_SPLIT` | build `f6088fde`: D and U by group across the cards, the prompt path's FFN half in three passes |
 
 The 64 GB mode (`FNX_PLE_RAM`, `FNX_EXPERT_DYN_GIB`, `FNX_EXPERT_DYN_MIN`) was written in this repository, not by a script: our
-Q4 build took it from here. All of the above but `maska_patch.py` are the sources of build `c213636c`; `maska_patch.py`
-applied to them gives the sources in `engine/` (build `40ef6d53`).
+Q4 build took it from here. All of the above up to `warm_patch.py` are the sources of build `c213636c`; `maska_patch.py`
+applied to them gives build `40ef6d53`, and the five `edge0_patch*.py` applied to that, in the order above, give the sources in
+`engine/` (build `f6088fde`). `edge0_patch5.py` (D and U while writing on the P100 row kernel) was slower and was reverted; it
+is not here (docs/HISTORY.md, "Tried and dropped").

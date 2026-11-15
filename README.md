@@ -1,20 +1,24 @@
 # Qwen3.8-Flash-Next on two Tesla P100
 
 This is a port of Strata's all-cards split engine (`strata-split-2`) to the NVIDIA Tesla P100 (Pascal, sm_60). It runs
-**Qwen3.8-Flash-Next** on **two P100 16 GB** cards with MTP drafting and pictures, from either of two GGUF files. On our
-server, with this repository's benchmark (see "Our numbers"):
+**Qwen3.8-Flash-Next** on **two P100 16 GB** cards with MTP drafting and pictures, from either of two GGUF files, and
+since 15 Nov 2026 **Edge0-145B**, Flash-Next with its experts in a latent space. On our server, with this repository's
+benchmark (see "Our numbers"):
 
 | Model file and profile | Context | RAM | Fresh writing | Edits (py / md) | Reading 38,862 tokens |
 |---|---:|---|---:|---:|---:|
 | ISTA-DASLab's GSQ-RCO **IQ3_S** (`setup.sh DATA`) | 524,288 | 96 GB | 66.6 tok/s | 111.0 / 116.0 | 954 tok/s |
 | the same in the **64 GB mode** (`setup.sh DATA --ram 64`) | 262,144 | 64 GB | 63.3 | 93.6 / 101.9 | 768 |
 | Unsloth's **UD-Q4_K_XL** (`setup.sh DATA --model q4_k_xl`) | 524,288 | 96 GB | 50.3 | 62.6 / 63.5 | 765 |
+| Edge0's **Edge0-145B NVFP4** (`setup.sh DATA --model edge0`) | 524,288 | 96 GB | 55.1 | 96.6 / 99.1 | 669 |
 
-> **Built for these two files, on Tesla P100 cards.** Files with other expert types (Q6_K, Q3_K, Q2_K, ...) do not use
+> **Built for these files, on Tesla P100 cards.** Files with other expert types (Q6_K, Q3_K, Q2_K, ...) do not use
 > this port's P100 kernels and run slower than Strata itself, or not at all (see "Known limitations"). On other cards,
-> or with other files, use [Strata](https://github.com/Niko1221/Strata). IQ3_S is the faster of the two: UD-Q4_K_XL is
-> the larger quantization (72 GiB of experts against 49), so fewer of its experts fit on the cards, edits wait for
-> PCIe, and 96 GB of RAM is tight for it (see "Unsloth's UD-Q4_K_XL").
+> or with other files, use [Strata](https://github.com/Niko1221/Strata). IQ3_S is the faster of the two Flash-Next files:
+> UD-Q4_K_XL is the larger quantization (72 GiB of experts against 49), so fewer of its experts fit on the cards, edits
+> wait for PCIe, and 96 GB of RAM is tight for it (see "Unsloth's UD-Q4_K_XL"). Edge0-145B is a different model: it writes
+> faster than UD-Q4_K_XL and slower than IQ3_S, and reads prompts slower than both; its authors report it a little better
+> at agentic coding, and in our tests its Slovenian is clearly weaker (see "Edge0-145B").
 
 **Coder** (`setup.sh DATA --coder`, either file): the router picks only from the half of the experts that ISTA-DASLab's
 Coder release keeps. On our server fresh writing and code edits ran 9-11 % faster on IQ3_S, and code edits 43 % faster
@@ -23,10 +27,11 @@ instruction given in Slovenian (see "Coder").
 
 The engine is one executable. [Strata](https://github.com/Niko1221/Strata)'s Python server (v0.2.9) drives it and gives
 you the OpenAI-compatible API, the tokenizer and the chat template. This repository holds the engine's sources exactly
-as our Coder build (`40ef6d53`) was built from them: our production engine for UD-Q4_K_XL plus the Coder switch, which
-when off gives our IQ3_S production engine's bits (see "Our numbers"). It also has the build, run configs for both
-files, and the benchmark we measure with. The model is not included: you download it yourself (see "Prepare the model
-files").
+as our Edge0 production build (`f6088fde`) was built from them: our Coder build (`40ef6d53`, our production engine for
+UD-Q4_K_XL plus the Coder switch, which when off gives our IQ3_S production engine's bits) plus Edge0's latent experts,
+which when off give our UD-Q4_K_XL production engine's bits (see "Our numbers"). It also has the build, run configs for
+each model, and the benchmark we measure with. The models are not included: you download them yourself (see "Prepare
+the model files").
 
 - What is ours and what is Strata's: [NOTICE.md](NOTICE.md), file by file in [docs/PROVENANCE.md](docs/PROVENANCE.md),
   every change in [docs/upstream-v0.2.10.diff](docs/upstream-v0.2.10.diff).
@@ -42,7 +47,7 @@ second window that day (11:33-11:53), with the UD-Q4_K_XL profiles as they are n
 for UD-Q4_K_XL (`c213636c`), which gives this build's bits (below). Each profile was written by `profile/fill_profile.py`
 at `FNX_ROUTE_PRIOR=0` (exact, see "Exact and lossy") and run once, on a freshly loaded engine. Writing is at temperature 0
 unless marked. These are the benchmark's own inputs, so your run compares with them directly (it prints them beside
-yours).
+yours). Edge0-145B's run, on 15 Nov, is in "Edge0-145B".
 
 | Test | IQ3_S, 512k | IQ3_S, 64 GB mode, 256k | UD-Q4_K_XL, 512k | UD-Q4_K_XL, 256k |
 |---|---:|---:|---:|---:|
@@ -55,6 +60,10 @@ yours).
 | Picture (96 x 96 PNG, encoder on the CPU): time to the answer; writing after it (sampled) | off in this run | off | 4.2 s; 42.6 | 4.1 s; 43.2 |
 | Load, until the server reports loaded | 312 s | 249 s | about 210 s | about 210 s |
 
+- **This release's sources with Edge0** (`f6088fde`), with `FNX_LATENT` unset, against our UD-Q4_K_XL production engine
+  (`c213636c`) on the UD-Q4_K_XL 512k profile at `FNX_ROUTE_PRIOR=0`, in a test window on 15 Nov (round `izdaja1`): the
+  same first-token logits in 18 of 18 requests (KL 0) and the same speeds (fresh 52.5 against 51.0, edits 61.9 / 63.7
+  against 62.0 / 64.0 tok/s). The IQ3_S file could not be compared that day (its first shard was not on our server).
 - **The same bits as our production.** Our IQ3_S production engine (`bf9c7f1f`) with the same profile gave the same
   first-token logits in 27 of 27 requests and the same speeds (66.9, 111.0 / 116.0, 953). The 64 GB mode gave the IQ3_S
   profile's logits in 27 of 27 (for that comparison with the same YaRN setting as the 512k profile; speed does not depend
@@ -237,6 +246,64 @@ With `FNX_EXPERT_RAM_GIB=26` instead of 29 (more of the kept experts on the card
 Use it for code. For general use, and for instructions in languages other than English, keep the full model. We have
 not checked it on English prose.
 
+## Edge0-145B
+
+[Edge0/Edge0-145B-NVFP4](https://huggingface.co/Edge0/Edge0-145B-NVFP4) (revision `cf9b3679`, the Edge0 Community Model
+License 1.0) is Qwen3.8-Flash-Next with its routed experts moved into a latent space. In each layer D maps a token's 2,560
+values into 8 groups of 1,792; each of the 512 experts belongs to one group and works there (gate|up 640 x 1792, down
+1792 x 640, in NVFP4); their outputs are summed per group, and U takes the sum back to 2,560. The router, the dense layers,
+the lookup table and the MTP draft layer are Flash-Next's byte for byte (we compared them), so the same tokenizer, draft
+layer and picture projector work with it. 145B parameters, 6.6B active. Its authors report it a little better than
+Flash-Next at agentic coding and about equal at reasoning (below); we have not measured that.
+
+`setup.sh DATA --model edge0` downloads its four files into `DATA/models/edge0-145b/` (57.3 GB: the skeleton GGUF with the
+dense layers and the tokenizer, 6.0 GB; `experts.bin`, 47.6 GB; `latent_dense_q8.bin` with D and U, 3.7 GB; `labels.bin`)
+and the IQ3_S's second shard (28.8 GB), which holds the lookup table. Give `--models` the IQ3_S's folder to share that
+shard. The engine maps Edge0's files as they are (`FNX_LATENT`); nothing is converted. The profile is
+`profile/flash-next-edge0-512k.template.json` (524,288 positions with YaRN x2, as the IQ3_S profile);
+[docs/SWITCHES.md](docs/SWITCHES.md#the-edge0-145b-profile) lists what differs.
+
+**Speed,** tok/s. The first column is `bench/bench.py` as in "Our numbers" (15 Nov 2026 in a test window, 07:12-07:21,
+a freshly loaded engine, with the profile `setup.sh` writes, started by `run.sh`); the others are our own test chain
+(see "Our rounds"), the same day. All at `FNX_ROUTE_PRIOR=0`:
+
+| Test | bench.py | Round `edge0s` | Round `edge0u` |
+|---|---:|---:|---:|
+| Fresh writing: 12 new prompts, 300 tokens each | **55.1** | 54.86 | 54.94 |
+| Edit, Python (the benchmark's file; in our rounds our 4.6 KB file, 1,388 tokens) | **96.6** | 94.5 | 94.4 |
+| Edit, Markdown (1,228 tokens) | **99.1** | 98.4 | 98.9 |
+| Cold read (bench.py 38,862 tokens, our rounds 36,424) | **669** | 657.8 | 660.6 |
+| Writing right after that read | 57.3 | 49.1 | 49.0 |
+| New messages on a running conversation (bench.py 2,029-20,243 tokens, our rounds 1,719-20,787) | 519 / 592 / 615 / 587 / 666 / 627 / 650 | 478-649 | 482-649 |
+| Picture (96 x 96 PNG): time to the answer; writing after it | "Rdeča in modra", 5.1 s; 46.3 | "Rdeča in modra", 1.9 s; 42.0 (round `edge0v`) | |
+| Load, until the server reports loaded | 210 s | 208 s | 208 s |
+
+- **Experts on the cards** are what counts, as for UD-Q4_K_XL. With D and U whole on both cards and
+  `FNX_EXPERT_RAM_GIB=36`, 4,603 experts were on the cards: fresh 44.9, edits 56.3 / 56.5, a 36k read 575. At 31.5,
+  7,099: 50.7, 81.0 / 83.9 and 577. With D and U split by group across the cards (`FNX_LAT_SPLIT=1`, 1.74 GiB a card
+  less) and 28, 9,041: 54.9, 94.5 / 98.4 and 658. Below 28 the engine moves experts back to RAM itself (at 26.5: 9,017).
+- **Why it is slower than IQ3_S** (in the benchmark 17 % in fresh writing, 13 % in edits, 30 % in reading): D and U are
+  dense, 73 million multiply-adds a token and layer, more than its ten experts. Each card computes half of them and reads half of their 3.7 GB at every
+  step, and a layer has two exchanges more than Flash-Next's.
+- **What the engine adds** (`history/patches/edge0_patch*.py`): an NVFP4 type in the P100 kernels for writing and for
+  prompts (64-value blocks, four UE4M3 scales, the E2M1 values exact in FP16; the scales are divided by 16 so that FP16
+  sums cannot overflow, and the experts' tail scales take it back); the latent branch in writing and in both prompt
+  variants; D and U by group across the cards.
+- **Checked:** a layer recomputed in NumPy in FP64 from the engine's own inputs (`FNX_LAT_DUMP`) matched with cosine
+  0.99992 and a relative error of 1.3 % (FP16 rows and sums); 53-79 % of the draft layer's drafts are accepted in fresh
+  writing and 95 % in edits, so the model's outputs are what Flash-Next's draft layer expects. With `FNX_LATENT` unset
+  these sources gave our UD-Q4_K_XL production engine's first-token logits in 18 of 18 requests (KL 0, round `izdaja1`)
+  and its speeds.
+- **Slovenian is weaker than Flash-Next's.** Of 30 short questions in Slovenian (other prompts than the benchmark's),
+  14-18 were answered in another language (Croatian or Serbian, or with Chinese words in between), against 5 for
+  Flash-Next IQ3_S. The same with the prompt path in FP32 (`FNX_LAT_F32=1`), so it is the model, not the port. Longer
+  Slovenian answers mix in words that are not Slovenian. We have not checked its English apart.
+- **Pictures** work with ISTA-DASLab's projector: our picture question in Slovenian was answered right.
+- **RAM:** 96 GB. It keeps 28 GiB of experts and the 26.8 GiB lookup table in RAM, about 80 GiB once loaded (10-13 GiB
+  were available on ours).
+- **Its authors' numbers** (Edge0's model card, not ours), Edge0-145B against Qwen3.8-Flash-Next: DeepSWE 1.1 64.6 / 58.7,
+  Terminal-Bench 2.1 86.5 / 83.3, HLE 35.4 / 35.9, GPQA Diamond 90.4 / 91.7, IFBench 80.6 / 81.3, AA-LCR 79.3 / 79.1.
+
 ## Requirements
 
 - **Linux, x86-64.**
@@ -246,8 +313,8 @@ not checked it on English prose.
 - **96 GB of RAM**, or **64 GB** with the 64 GB mode (IQ3_S only, see "64 GB of RAM"). The default profile keeps a
   pinned RAM copy of every expert (about 47 GiB) and the model's 26.8 GiB lookup table (the second shard) in RAM. Once
   loaded it holds 82-85 GiB of the 91.8 GiB Linux sees on our server; during the load it needs 8.4 GiB more, freed at
-  the end. UD-Q4_K_XL needs 96 GB too (see "Unsloth's UD-Q4_K_XL").
-- **Disk:** 83.6 GB for the IQ3_S shards (UD-Q4_K_XL: 111.3 GB), 0.9 GB for the picture projector, 0.8 GB for the MTP
+  the end. UD-Q4_K_XL and Edge0-145B need 96 GB too (see "Unsloth's UD-Q4_K_XL" and "Edge0-145B").
+- **Disk:** 83.6 GB for the IQ3_S shards (UD-Q4_K_XL: 111.3 GB; Edge0-145B: 57.3 GB plus the IQ3_S's 28.8 GB second shard), 0.9 GB for the picture projector, 0.8 GB for the MTP
   draft layer (another 6 GB while you prepare it). The IQ3_S load reads 48 GB from disk: about 100 s of the 5 minutes
   on ours (0.5 GB/s).
 - **CUDA 12.x** (CUDA 13 dropped sm_60) with a host compiler it accepts (CUDA 12.4: gcc 13 at most), CMake 3.22 or newer,
@@ -269,7 +336,8 @@ bash run.sh /data/flash-next           # the server on http://127.0.0.1:8080/v1,
 ```
 
 - `bash setup.sh /data/flash-next --ram 64` writes the 64 GB mode's profile; `bash setup.sh /data/flash-next-q4 --model q4_k_xl`
-  downloads and sets up Unsloth's UD-Q4_K_XL instead of the IQ3_S file (112 GB). One `DATA` folder holds one profile, so
+  downloads and sets up Unsloth's UD-Q4_K_XL instead of the IQ3_S file (112 GB), `bash setup.sh /data/edge0 --model edge0`
+  Edge0-145B (87 GB, of which the IQ3_S's second shard is 28.8 GB; `--models` the IQ3_S's folder shares it). One `DATA` folder holds one profile, so
   give each model its own folder, or `--models` the same model folder to share the downloads. `--coder` (with either
   file) writes a Coder profile (see "Coder").
 - `bash setup.sh /data/flash-next --check` only reports what is there and what is still to do.
@@ -417,7 +485,8 @@ python3 profile/fill_profile.py --models "$MODELS" --mtp "$PREP"/mtp-rt --tokeni
 # without --vision-exe: no pictures; --route-prior 0.15: our production setting (lossy); --gpu 2,3 if the P100 are
 # not cards 0 and 1; --exe if you built elsewhere than build/; --draft-vocab for another draft vocabulary;
 # --ram 64: the 64 GB mode; --model q4_k_xl: UD-Q4_K_XL (profile/flash-next-q4_k_xl-512k.template.json; its 256k one
-# with --template profile/flash-next-q4_k_xl-256k.template.json); --coder: only the Coder's experts (lossy)
+# with --template profile/flash-next-q4_k_xl-256k.template.json); --model edge0: Edge0-145B (its four files in
+# "$MODELS"/edge0-145b, the IQ3_S's second shard in "$MODELS"); --coder: only the Coder's experts (lossy)
 ```
 
 `run.sh` then starts Strata's server with it from the v0.2.9 checkout, which by hand is:
@@ -553,8 +622,9 @@ python3 tune/tune.py --data /data/flash-next --screen           # 2-3 hours, one
 
 ## Known limitations
 
-- **Only these two files.** The port's P100 expert kernels cover the expert types IQ3_S, IQ3_XXS, IQ2_S, IQ4_XS, IQ4_NL,
-  Q4_0, IQ2_XXS and IQ1_M, and since this release Q4_K, Q5_K, Q5_1 and Q8_0 (UD-Q4_K_XL's). Files with other expert
+- **Only these files.** The port's P100 expert kernels cover the expert types IQ3_S, IQ3_XXS, IQ2_S, IQ4_XS, IQ4_NL,
+  Q4_0, IQ2_XXS and IQ1_M, since 13 Nov Q4_K, Q5_K, Q5_1 and Q8_0 (UD-Q4_K_XL's), and since 15 Nov NVFP4 for Edge0's
+  latent experts (in Edge0's own file layout only, through `FNX_LATENT`; Edge0's Q3_K build is not supported). Files with other expert
   types (Q6_K, Q3_K, Q2_K, ...) get none of them: writing falls back to Strata's original kernels, and reading a prompt
   stops with `p100 moe: expert type N not handled` (with `FNX_PF_MOE_Q8=1` it reads through the writing kernels,
   slowly). On the first release, which had no Q4_K kernels, a tester ran UD-Q4_K_XL beside current Strata on the same
@@ -572,6 +642,11 @@ python3 tune/tune.py --data /data/flash-next --screen           # 2-3 hours, one
   they run.
 - `history/patches/` holds the last patch scripts we applied, with our build machine's paths. They are a record: their
   changes are already in `engine/`.
+- **Edge0-145B:** its Slovenian is clearly weaker than Flash-Next's (see "Edge0-145B"); it runs at 524,288 positions
+  only with D and U split across the cards (`FNX_LAT_SPLIT=1`). Its sources were built in our development build
+  directory, not with this folder's `build.sh`; `setup.sh --model edge0 --check`, `fill_profile.py`, `run.sh` and
+  `bench/bench.py` ran on our server against the real files (linked, not downloaded). Its coding and reasoning numbers
+  are its authors', not ours.
 - **Coder:** worse than the full model outside code, and in our tests it ignored an instruction given in Slovenian and
   answered a Slovenian question in English (see "Coder"). It has not been run with the 64 GB mode or through
   `bench/bench.py`.
@@ -588,7 +663,8 @@ python3 tune/tune.py --data /data/flash-next --screen           # 2-3 hours, one
 - **ggml / llama.cpp** by the ggml authors (MIT): the GPU block formats and dot products; `engine/src/iq3s_x.cuh` is made
   from its `vecdotq.cuh`.
 - **ISTA-DASLab** for the GSQ-RCO model files and the Coder release's list of kept experts (Apache-2.0, see
-  [third_party/ista-daslab/](third_party/ista-daslab/)), **Qwen** for Qwen3.8-Flash-Next.
+  [third_party/ista-daslab/](third_party/ista-daslab/)), **Qwen** for Qwen3.8-Flash-Next, **Edge0** for Edge0-145B (the
+  Edge0 Community Model License 1.0; its files are not included here).
 - Ideas taken from others: the 16-bit `dp4a` form (`fnx_dp4a_xmad` in `p100_compat.h`) from KaneQuah/Kmic-68's llama.cpp
   fork (commit `99eb48176d`); the copy-engine thread for missing experts (`FNX_P100_DMA`) from DeepInfer; the register
   constraint in `fnx_dp4a_vmad` from Strata PR #4274; the expert pool floor from Strata 0.2.12 (commit `20885f7a`).

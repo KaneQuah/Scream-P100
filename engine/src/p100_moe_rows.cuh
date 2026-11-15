@@ -13,7 +13,7 @@ template <int TY> inline constexpr int kGrW = (kGrBytes<TY> + 3) / 4;
 #ifndef FNX_ROW_G
 #define FNX_ROW_G 2
 #endif
-template <int TY> inline constexpr int kRowG = TY == 20 || TY == 2 || TY == 7 || TY == 8 ? 1 : FNX_ROW_G;       // lanes per row: a gate|up row is long, a down row short
+template <int TY> inline constexpr int kRowG = TY == 20 || TY == 2 || TY == 7 || TY == 8 || TY == 40 ? 1 : FNX_ROW_G;       // lanes per row: a gate|up row is long, a down row short
 inline constexpr int kRowT = 256;
 
 template <int P, int NW>
@@ -85,6 +85,13 @@ __device__ __forceinline__ void run_words(const uint32_t (&W)[kGrW<TY>], uint32_
         w[3] = g16<20 + 16 * IB>(W) | (g16<22 + 16 * IB>(W) << 16);
         w[4] = ((g8<4 + IB / 2>(W) >> (4 * (IB & 1))) & 15u) | (((g16<2>(W) >> (2 * IB)) & 3u) << 4);
         w[5] = g16<0>(W);
+    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py): block IB >> 1, half IB & 1 (p100_iq_gemm.cuh's nvfp4_words)
+        constexpr int B = 36 * (IB >> 1), Q = B + 4 + 16 * (IB & 1);
+        w[0] = g16<Q>(W) | (g16<Q + 2>(W) << 16);
+        w[1] = g16<Q + 4>(W) | (g16<Q + 6>(W) << 16);
+        w[2] = g16<Q + 8>(W) | (g16<Q + 10>(W) << 16);
+        w[3] = g16<Q + 12>(W) | (g16<Q + 14>(W) << 16);
+        w[4] = g16<B + 2 * (IB & 1)>(W);
     } else {   // IQ4_NL, Q4_0: blocks of d, qs[16]
         constexpr int B = 18 * IB;
         w[0] = g16<B + 2>(W) | (g16<B + 4>(W) << 16);
@@ -436,6 +443,7 @@ void p100_moe_rows_phase_w(const DW& A, size_t sa, const Job* jobs, const int* n
         case T_IQ2_S: rows_launch<22>(a, T, njobs_cap, s); break;
         case T_IQ4_XS: rows_launch<23>(a, T, njobs_cap, s); break;
         case T_IQ4_NL: rows_launch<20>(a, T, njobs_cap, s); break;
+        case T_NVFP4: rows_launch<40>(a, T, njobs_cap, s); break;   // edge0_patch.py
         case T_Q4_0: rows_launch<2>(a, T, njobs_cap, s); break;
         case T_IQ2_XXS: rows_launch<16>(a, T, njobs_cap, s); break;
         case T_IQ1_M: rows_launch<29>(a, T, njobs_cap, s); break;

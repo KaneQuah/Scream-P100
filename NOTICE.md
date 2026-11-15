@@ -15,8 +15,9 @@
 modified, or new, with its SHA-256. [docs/upstream-v0.2.10.diff](docs/upstream-v0.2.10.diff) is every change against
 Strata v0.2.10's `src/split/`. The paths in sFNX's `NOTICE.md` (`src/split/...`) are `engine/...` here.
 
-Not included and not redistributed: the model files (ISTA-DASLab's and Unsloth's GGUF, Qwen's checkpoint for the MTP layer), Strata's
-server and tools, and llama.cpp (`build.sh` fetches the headers it needs).
+Not included and not redistributed: the model files (ISTA-DASLab's and Unsloth's GGUF, Edge0's Edge0-145B files under the Edge0
+Community Model License 1.0, Qwen's checkpoint for the MTP layer), Strata's server and tools, and llama.cpp (`build.sh` fetches
+the headers it needs). `setup.sh` downloads the model files from their own repositories; their licenses are theirs.
 
 Ideas taken from others, with thanks: the 16-bit form of the byte dot product (`fnx_dp4a_xmad`) from KaneQuah/Kmic-68's
 llama.cpp fork (commit `99eb48176d`); a host thread per card that copies missing experts with the copy engine

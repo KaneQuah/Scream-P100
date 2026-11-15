@@ -37,6 +37,8 @@
 
 namespace fnx {
 
+bool g_lat_split = false;   // edge0_patch6.py (FNX_LAT_SPLIT; outside the file's anonymous namespace: model.hpp declares it)
+
 namespace {
 
 void ck(cudaError_t e, const char* what) {
@@ -286,6 +288,7 @@ std::vector<Stager::Group> stage_groups(const Gguf& g) {
     std::vector<Stager::Group> gs(NL + 1);
     for (const auto& kv : g.tensors()) {
         int l = -1, n = 0;
+        if (kv.second.shard < 0 && !kv.second.data) continue;   // edge0_patch.py: FNX_LATENT shape-only tensors, never read
         if (std::sscanf(kv.first.c_str(), "blk.%d.%n", &l, &n) == 1 && n > 0 && l >= 0 && l < NL) gs[(size_t) l].names.push_back(kv.first);
     }
     gs[NL].names = {"output_hc_norm.weight", "output_hc_down.weight", "output_hc_up.weight", "output.weight"};
@@ -781,6 +784,40 @@ struct Up {
         });
         return w;
     }
+    // edge0_patch.py: Edge0's latent experts from their blobs (blk.l.lat_exps): gate rows [r0, r1) then up rows, 1792 values a row
+    DW lat_rows2(const Tensor& b, int r0, int r1, size_t& stride, const char** host_of, const char* perm, const char** perm_at) {
+        constexpr size_t ROW = LAT_ELL / 64 * 36, UP = (size_t) FF * ROW;
+        if (r0 < 0 || r1 <= r0 || r1 > FF) throw std::runtime_error(b.name + ": rows [" + std::to_string(r0) + ", " + std::to_string(r1) + ")");
+        DW w;
+        w.type = T_NVFP4;
+        w.n_in = LAT_ELL;
+        w.n_out = 2 * (r1 - r0);
+        w.row_bytes = ROW;
+        stride = (size_t) w.n_out * ROW;
+        const size_t half = (size_t) (r1 - r0) * ROW;
+        experts(w, stride, NEXP, host_of, perm, perm_at, [&](int64_t e, uint8_t* dst) {
+            const uint8_t* src = b.data + (size_t) e * LAT_BLOB;
+            std::memcpy(dst, src + (size_t) r0 * ROW, half);
+            std::memcpy(dst + half, src + UP + (size_t) r0 * ROW, half);
+        });
+        return w;
+    }
+    // down: every one of its 1792 rows, input blocks [b0, b1) of 64 values
+    DW lat_cols(const Tensor& b, int b0, int b1, size_t& stride, const char** host_of, const char* perm, const char** perm_at) {
+        constexpr size_t SRC = FF / 64 * 36, DOWN = (size_t) 2 * FF * (LAT_ELL / 64 * 36);
+        if (b0 < 0 || b1 <= b0 || b1 > FF / 64) throw std::runtime_error(b.name + ": down blocks [" + std::to_string(b0) + ", " + std::to_string(b1) + ")");
+        DW w;
+        w.type = T_NVFP4;
+        w.n_in = (b1 - b0) * 64;
+        w.n_out = LAT_ELL;
+        w.row_bytes = (size_t) (b1 - b0) * 36;
+        stride = (size_t) w.n_out * w.row_bytes;
+        experts(w, stride, NEXP, host_of, perm, perm_at, [&](int64_t e, uint8_t* dst) {
+            const uint8_t* src = b.data + (size_t) e * LAT_BLOB + DOWN;
+            for (int r = 0; r < w.n_out; ++r) std::memcpy(dst + (size_t) r * w.row_bytes, src + (size_t) r * SRC + (size_t) b0 * 36, w.row_bytes);
+        });
+        return w;
+    }
 };
 
 std::vector<int> range(int a, int b) {
@@ -881,6 +918,9 @@ void load_layers_27b(Stager& st, CardW& c, Up& up, const std::vector<int>& conv_
 // once this card is through with it.
 // host_experts: every routed expert to a host copy (an ExpertCache, or the lab's holder); store: the holder's shared memory.
 // perm (FNX_EXPERT_DYN_GIB): those experts to VRAM for good as their layer loads, with no host copy
+// FNX_LATENT (edge0_patch.py): Edge0's group labels [NL][NEXP], in the mapping (Model::Model sets it)
+const int32_t* g_lat_labels = nullptr;
+
 void load_card(Stager& st, CardW& c, const std::vector<std::vector<char>>& resident, const std::vector<double>* arena_score,
                Store* store, bool host_experts, const std::vector<std::vector<char>>& perm = {}) {
     ck(cudaSetDevice(c.dev), "cudaSetDevice");
@@ -985,10 +1025,46 @@ void load_card(Stager& st, CardW& c, const std::vector<std::vector<char>>& resid
             w.idx_kn = up.f32(L(l, "indexer.k_norm.weight"), QSA_KEY);
         }
         const char* pr = perm.empty() ? nullptr : perm[(size_t) l].data();
+        if (g_lat_labels) {   // edge0_patch.py: Edge0's latent experts, D and U, labels and tail scales
+            if (c.ff0 % 64 || c.ff1 % 64) throw std::runtime_error("FNX_LATENT: a card's ff range is not in NVFP4's 64-value blocks");
+            const Tensor& lb = L(l, "lat_exps");
+            w.gu_e = up.lat_rows2(lb, c.ff0, c.ff1, w.gu_e_stride, hg, pr, pr ? c.perm_gu.data() + (size_t) l * NEXP : nullptr);
+            w.down_e = up.lat_cols(lb, c.ff0 / 64, c.ff1 / 64, w.down_e_stride, hd, pr, pr ? c.perm_dn.data() + (size_t) l * NEXP : nullptr);
+            std::vector<float> esc((size_t) NEXP * 4);
+            for (int e = 0; e < NEXP; ++e) {
+                std::memcpy(&esc[(size_t) e * 4], lb.data + (size_t) e * LAT_BLOB + LAT_TAIL, 16);
+                for (int k = 0; k < 3; ++k) esc[(size_t) e * 4 + k] *= NVFP4_PRE;
+            }
+            w.lat_esc = up.put<float>(esc.data(), esc.size() * 4);
+            w.lat_lab = up.put<int>(g_lat_labels + (size_t) l * NEXP, (size_t) NEXP * 4);
+            // edge0_patch6.py, FNX_LAT_SPLIT: this card's half of the groups only (h: its place by its ff range, as in Engine::ffn_half)
+            const int h = g_lat_split ? c.ff0 / (c.ff1 - c.ff0) : 0, ng = g_lat_split ? LAT_GH : LAT_G, g0 = h * ng;
+            Tensor td = L(l, "lat_d");
+            if (g_lat_split) {   // D's rows [h LAT_HW, (h + 1) LAT_HW)
+                if (td.ne[0] != N || td.ne[1] != LAT_W) throw std::runtime_error("FNX_LAT_SPLIT: lat_d is not [LAT_W][N]");
+                td.data += (size_t) h * LAT_HW * td.row_bytes();
+                td.ne[1] = LAT_HW;
+                td.nbytes = (size_t) LAT_HW * td.row_bytes();
+            }
+            w.lat_d = up.q8split(td);
+            const Tensor& tu = L(l, "lat_u");   // [G][N][LAT_ELL] -> [N][G * LAT_ELL]: z (all 8 groups a row, or the card's 4) in one product
+            const size_t rb = (size_t) LAT_ELL / 32 * 34;
+            std::vector<uint8_t> uf((size_t) N * ng * rb);
+            for (int i = 0; i < N; ++i)
+                for (int gg = 0; gg < ng; ++gg) std::memcpy(&uf[((size_t) i * ng + gg) * rb], tu.data + ((size_t) (g0 + gg) * N + i) * rb, rb);
+            Tensor tf = tu;
+            tf.data = uf.data();
+            tf.ne[0] = (int64_t) ng * LAT_ELL;
+            tf.ne[1] = N;
+            tf.ne[2] = tf.ne[3] = 1;
+            tf.nbytes = uf.size();
+            w.lat_u = up.q8split(tf);
+        } else {
         w.gu_e = up.expert_rows2(L(l, "ffn_gate_exps.weight"), L(l, "ffn_up_exps.weight"), c.ff0, c.ff1, w.gu_e_stride, hg, pr,
                                  pr ? c.perm_gu.data() + (size_t) l * NEXP : nullptr);
         w.down_e = up.expert_cols(L(l, "ffn_down_exps.weight"), c.ff0 / 32, c.ff1 / 32, w.down_e_stride, hd, pr,
                                   pr ? c.perm_dn.data() + (size_t) l * NEXP : nullptr);
+        }
         w.sh_gu = up.dense(up.rows2(L(l, "ffn_gate_shexp.weight"), range(c.ff0, c.ff1), L(l, "ffn_up_shexp.weight"), range(c.ff0, c.ff1)));
         w.sh_down = up.dense(up.cols(L(l, "ffn_down_shexp.weight"), range(c.ff0 / 32, c.ff1 / 32)));
         if (!w.sh_gu.s.q || !w.sh_down.s.q) throw std::runtime_error("fnx: the shared expert is not Q8_0");
@@ -1365,7 +1441,8 @@ Mtp::~Mtp() { free_mtp_cards(cards); }
 // the cards (the app's rule, strata_control/split_engine.py, refuses it earlier; this is the same check for a start that skipped the rule). The
 // server then starts the normal layer split. Q2_0 is not listed: the Gguf has already repacked it to Q4_0.
 static void check_supported(const Gguf& g) {
-    const uint32_t ok[] = {T_Q4_K, T_Q5_K, T_Q5_1, T_Q8_0, T_Q4_0, T_IQ4_NL, T_IQ4_XS, T_IQ3_S, T_IQ3_XXS, T_IQ2_S, T_IQ2_XXS, T_IQ1_M};
+    const uint32_t ok[] = {T_Q4_K, T_Q5_K, T_Q5_1, T_Q8_0, T_Q4_0, T_IQ4_NL, T_IQ4_XS, T_IQ3_S, T_IQ3_XXS, T_IQ2_S, T_IQ2_XXS, T_IQ1_M,
+                           T_NVFP4};   // NVFP4: Edge0's latent experts (edge0_patch.py)
     for (const auto& kv : g.tensors()) {
         const std::string& n = kv.first;
         if (n.find("_exps.weight") == std::string::npos || n.find("shexp") != std::string::npos) continue;
@@ -1389,6 +1466,15 @@ Model::Model(const std::string& path, Load how, Store* store, const std::string*
         check_cards();
     }
     check_supported(g);
+    if (g.latent()) {   // edge0_patch.py
+        const Tensor& lt = g.t("lat_labels");
+        for (size_t i = 0; i < (size_t) NL * NEXP; ++i)
+            if (((const int32_t*) lt.data)[i] < 0 || ((const int32_t*) lt.data)[i] >= LAT_G) throw std::runtime_error("FNX_LATENT: a group label out of 0..7");
+        g_lat_labels = (const int32_t*) lt.data;
+        if (const char* s = std::getenv("FNX_LAT_SPLIT")) g_lat_split = std::atoi(s) != 0;   // edge0_patch6.py
+        if (g_lat_split && NCARD != 2) throw std::runtime_error("FNX_LAT_SPLIT: two cards");
+        if (g_lat_split) std::fprintf(stderr, "fnx: FNX_LAT_SPLIT: D and U by group, four groups a card (two exchanges a layer more)\n");
+    }
 #if FNX_27B
     const std::string p = "qwen35.";
     // block_count holds the draft (nextn) layer too
@@ -1961,12 +2047,13 @@ void card_ptrs(CardW& c, F f) {
         dw(w.wq), dw(w.wk), dw(w.wv), dw(w.wo), f(w.q_norm), f(w.k_norm), f(w.idx_wq), f(w.idx_wk), dw(w.idx_qk), f(w.idx_qn),
             f(w.idx_kn);
         dw(w.gu_e), dw(w.down_e), dw(w.sh_gu), dw(w.sh_down);
+        q8(w.lat_d), q8(w.lat_u), f(w.lat_lab), f(w.lat_esc);   // edge0_patch.py
     }
     for (const char*& p : c.ec_host_gu) f(p);
     for (const char*& p : c.ec_host_dn) f(p);
 }
 #if !FNX_27B
-static_assert(sizeof(LayerW) == 952, "LayerW changed: put its new addresses in card_ptrs, then update this size");
+static_assert(sizeof(LayerW) == 1000, "LayerW changed: put its new addresses in card_ptrs, then update this size");
 #endif
 }  // namespace
 

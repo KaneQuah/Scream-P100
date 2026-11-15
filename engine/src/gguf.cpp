@@ -42,6 +42,9 @@ TypeInfo type_info(uint32_t t) {
         case T_IQ1_M: return {256, 56};
         case T_IQ4_XS: return {256, 136};
         case T_Q2_0: return {64, 18};
+        case T_I8: return {1, 1};
+        case T_I32: return {1, 4};
+        case T_NVFP4: return {64, 36};   // edge0_patch.py: 4 UE4M3 scales (one a 16 values), 32 bytes of e2m1 codes
     }
     throw std::runtime_error("gguf: unknown ggml type " + std::to_string(t));
 }
@@ -110,6 +113,7 @@ Gguf::Gguf(const std::string& first) {
     } else {
         load_shard(first, true);
     }
+    if (const char* d = std::getenv("FNX_LATENT")) add_latent(d);   // edge0_patch.py
     convert_small_tensors();
 }
 
@@ -122,6 +126,7 @@ void Gguf::convert_small_tensors() {
     for (const auto& kv : tensors_)
         mixed |= kv.second.type == T_IQ2_S || kv.second.type == T_IQ3_XXS || kv.second.type == T_IQ3_S || kv.second.type == T_Q2_0 ||
                  kv.second.type == T_IQ2_XXS || kv.second.type == T_IQ1_M;
+    mixed |= latent_;   // edge0_patch.py: Edge0's skeleton keeps ISTA's BF16 tensors (the same bytes): converted as there
     if (!mixed) return;
     for (auto& kv : tensors_) {
         Tensor& t = kv.second;
@@ -140,6 +145,68 @@ void Gguf::convert_small_tensors() {
         ++converted_;
     }
     std::fprintf(stderr, "gguf: %d dense/small tensors converted to Q8_0/F32 at load (the file's routed experts keep their types)\n", converted_);
+}
+
+// ---- FNX_LATENT (edge0_patch.py): Edge0-145B's latent MoE (VODNIK-edge0.md). The skeleton GGUF holds every tensor but the routed
+// experts and the n-gram table; these come from the folder:
+//   experts.bin          layer l at l * 512 * 1935376, expert e at + e * 1935376: [gate 640 x 1008 B | up | down 1792 x 360 B |
+//                        16 B: the gate, up and down output scales, 0], NVFP4 -> blk.l.lat_exps (I8 [1935376][512])
+//   latent_dense_q8.bin  layer l: D [8 x 1792 rows][2560] then U [8 x 2560 rows][1792], Q8_0 -> blk.l.lat_d, blk.l.lat_u
+//   labels.bin           int32 [48][512], each expert's group -> lat_labels
+// and the n-gram table from FNX_LATENT_PLE (default ISTA's shard 2, the same table: VODNIK). blk.l.ffn_{gate,up,down}_exps.weight
+// are added as shapes only (no file, no data): the placement code reads their sizes; the experts themselves come from lat_exps.
+int Gguf::map_raw(const std::string& path, size_t want) {
+    Map mp;
+    mp.path = path;
+    mp.fd = open(path.c_str(), O_RDONLY);
+    if (mp.fd < 0) throw std::runtime_error("FNX_LATENT: cannot open " + path);
+    struct stat st;
+    fstat(mp.fd, &st);
+    mp.size = (size_t) st.st_size;
+    if (mp.size != want)
+        throw std::runtime_error("FNX_LATENT: " + path + " is " + std::to_string(mp.size) + " bytes, not the " + std::to_string(want));
+    mp.base = mmap(nullptr, mp.size, PROT_READ, MAP_SHARED, mp.fd, 0);
+    if (mp.base == MAP_FAILED) throw std::runtime_error("FNX_LATENT: cannot map " + path);
+    maps_.push_back(mp);
+    return (int) maps_.size() - 1;
+}
+
+void Gguf::add_latent(const std::string& dir) {
+    constexpr int NLY = 48, NE = 512, ELL = 1792, FFW = 640, H = 2560, G = 8;
+    constexpr size_t BLOB = 1935376, LAYER = (size_t) NE * BLOB, GU_ROW = ELL / 64 * 36, DN_ROW = FFW / 64 * 36;
+    constexpr size_t DB = (size_t) G * ELL * (H / 32) * 34, UB = (size_t) G * H * (ELL / 32) * 34;
+    static_assert(2 * FFW * GU_ROW + ELL * DN_ROW + 16 == BLOB, "Edge0's NVFP4 expert blob");
+    latent_ = true;
+    if (!tensors_.count("per_layer_token_embd.weight")) {
+        const char* ple = std::getenv("FNX_LATENT_PLE");
+        load_shard(ple ? ple : "/srv/llm/strata/models/iq3_s/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00002-of-00002.gguf", false);
+    }
+    auto add = [&](const std::string& name, uint32_t type, std::vector<int64_t> ne, int shard, uint64_t off, size_t bytes) {
+        Tensor t;
+        t.name = name;
+        t.type = type;
+        t.n_dims = (int) ne.size();
+        for (size_t d = 0; d < ne.size(); ++d) t.ne[d] = ne[d];
+        t.shard = shard;
+        t.offset = off;
+        t.nbytes = bytes;
+        t.data = shard >= 0 ? (const uint8_t*) maps_[(size_t) shard].base + off : nullptr;
+        if (!tensors_.emplace(name, t).second) throw std::runtime_error("FNX_LATENT: " + name + " is in the skeleton already");
+    };
+    const int se = map_raw(dir + "/experts.bin", NLY * LAYER);
+    const int sd = map_raw(dir + "/latent_dense_q8.bin", NLY * (DB + UB));
+    const int sl = map_raw(dir + "/labels.bin", (size_t) NLY * NE * 4);
+    for (int l = 0; l < NLY; ++l) {
+        const std::string b = "blk." + std::to_string(l) + ".";
+        add(b + "lat_exps", T_I8, {(int64_t) BLOB, NE}, se, l * LAYER, LAYER);
+        add(b + "lat_d", T_Q8_0, {H, G * ELL}, sd, l * (DB + UB), DB);
+        add(b + "lat_u", T_Q8_0, {ELL, G * H}, sd, l * (DB + UB) + DB, UB);
+        add(b + "ffn_gate_exps.weight", T_NVFP4, {ELL, FFW, NE}, -1, 0, (size_t) NE * FFW * GU_ROW);
+        add(b + "ffn_up_exps.weight", T_NVFP4, {ELL, FFW, NE}, -1, 0, (size_t) NE * FFW * GU_ROW);
+        add(b + "ffn_down_exps.weight", T_NVFP4, {FFW, ELL, NE}, -1, 0, (size_t) NE * ELL * DN_ROW);
+    }
+    add("lat_labels", T_I32, {NE, NLY}, sl, 0, (size_t) NLY * NE * 4);
+    std::fprintf(stderr, "gguf: FNX_LATENT %s: Edge0's latent experts (NVFP4), D/U (Q8_0) and labels beside the skeleton\n", dir.c_str());
 }
 
 Gguf::~Gguf() {

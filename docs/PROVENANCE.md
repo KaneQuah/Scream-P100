@@ -2,10 +2,11 @@
 
 Compared with Strata v0.2.10 (`github.com/Niko1221/Strata`, commit `ffa80d73133ea5c548aefe57889a16e8085a938f`), directory `src/split/`.
 Strata's `src/split/` is itself a port of sFNX by John Fink (`third_party/sfnx/NOTICE.md`). The full diff is `upstream-v0.2.10.diff`.
-SHA-256 values are those of the sources of our Coder engine (`strata-split-2`, binary SHA-256 `40ef6d531143d73d…`,
-13 Nov 2026): our production engine for UD-Q4_K_XL (`c213636ce3de2182…`) with `history/patches/maska_patch.py` applied.
-With `FNX_EXPERT_MASK` unset it is our IQ3_S production engine (`bf9c7f1f…`) bit for bit (see README, "Our numbers" and
-"Coder").
+SHA-256 values are those of the sources of our Edge0 production engine (`strata-split-2`, binary SHA-256
+`f6088fdee182bbe6…`, 15 Nov 2026): our Coder engine (`40ef6d531143d73d…`, which is our production engine for UD-Q4_K_XL,
+`c213636ce3de2182…`, with `history/patches/maska_patch.py` applied) with the five `history/patches/edge0_patch*.py` applied.
+With `FNX_EXPERT_MASK` and `FNX_LATENT` unset it gives our production engines' bits (see README, "Our numbers", "Coder" and
+"Edge0-145B").
 
 | File | Origin | SHA-256 |
 |---|---|---|
@@ -22,16 +23,16 @@ With `FNX_EXPERT_MASK` unset it is our IQ3_S production engine (`bf9c7f1f…`) b
 | `src/card_check.hpp` | Strata v0.2.10, unchanged | `704aeda84671d56f6021321ee04562562ffa2358661b73312399184396558320` |
 | `src/card_split.hpp` | Strata v0.2.10, unchanged | `0e211d82a6b0560078e9b5a6e2e681394b412f5344c08b92f877dc9fc0b0e2cf` |
 | `src/dense.cuh` | Strata v0.2.10, modified by us | `1ca66d9ac98ea99c5f7dc388142cb04396440b2a8be38b2dd10e34ee4e2b62ba` |
-| `src/engine.cu` | Strata v0.2.10, modified by us | `2b716a3e31bbc2e2bae36afb9554e25ede5a6cb9b3e587d6ba2010151343e74f` |
+| `src/engine.cu` | Strata v0.2.10, modified by us | `039f22bd7644d82ed504a17a0401008dd9e18cae3572822b7d93fcd43ad99cee` |
 | `src/engine.hpp` | Strata v0.2.10, modified by us | `7c42647a14be2e63f20f7c6a56ab051d1dacf2a7e7da7cf8cab8f2f9fd4fe5c4` |
 | `src/engine_common.cu` | Strata v0.2.10, modified by us | `7787e092a92f2330fd08ccca8b6302f6ad65e2472c93de9aa5dead9f625b8bd9` |
-| `src/engine_impl.hpp` | Strata v0.2.10, modified by us | `33c5f90a6c3a6f6db6a2416897b29b58523844f32ef6a9a0bb1d8abca2fb0fe1` |
+| `src/engine_impl.hpp` | Strata v0.2.10, modified by us | `97a32711f217a6c06bc929d8fc3024f2aa0c52df61de6d03144942731e212fd1` |
 | `src/engine_parts.hpp` | Strata v0.2.10, modified by us | `4af1fd9aedf96f241d1f202ea924ea722adb63ea77942b5b1a658e6e2ffeba1e` |
 | `src/env.hpp` | Strata v0.2.10, unchanged | `4dc19a4a18ddc95fb1a3e1a60fb70821d78b459de626d70385e8339a402aa134` |
 | `src/gdn_core.cuh` | Strata v0.2.10, modified by us | `fd373392625b8f293722c2014ba4f337db0cd9dcdb5b56398d22ae21de5c83df` |
 | `src/gdn_prompt.cuh` | Strata v0.2.10, unchanged | `07e5e0588aa96bb18ac639007b53d5fe5b8641f6adb552ed77501296f9271387` |
-| `src/gguf.cpp` | Strata v0.2.10, modified by us | `1a05999ea5933f4caef4fea886933818264270eb32f17f45c98310d85a1f796a` |
-| `src/gguf.hpp` | Strata v0.2.10, modified by us | `6416eeb9e8cc933c1401d21ec11fa94c5f69a3c69f0ba600ade8043d7283571d` |
+| `src/gguf.cpp` | Strata v0.2.10, modified by us | `bd6339d95de593470535eea838bfebed0a3913b4ee4bd55fbdb151e3236a2f50` |
+| `src/gguf.hpp` | Strata v0.2.10, modified by us | `c8a93acebad4dd383f31895d05e27e3db1424eaa78e79fd6a33e80e4c6c15bf0` |
 | `src/hc.cuh` | Strata v0.2.10, modified by us | `27a9690e3521332a0db39f01d7e82aa0fb6fb32153cd96d0b483d7a334d1f54d` |
 | `src/hip/cuda.h` | Strata v0.2.10, unchanged | `ef6d41d107c2c3a5ba78b01fa2ab6e5463099d14e3e7f507eae37a189e6a048e` |
 | `src/hip/fnx_hip.h` | Strata v0.2.10, unchanged | `b8aa61996861f38912cfc09a0b960720fed05627d6d0ed91f0f243a8eb77a480` |
@@ -42,10 +43,10 @@ With `FNX_EXPERT_MASK` unset it is our IQ3_S production engine (`bf9c7f1f…`) b
 | `src/hip/rccl_dl.hpp` | Strata v0.2.10, unchanged | `e7d9ea5291dd907900f81c9521f64dad9d94770d023513f9b2ac6ef78b805167` |
 | `src/hip/selftest_policy.hpp` | Strata v0.2.10, unchanged | `3ba715a7916f8900e76fc9b9e5464cdea053b51be1d0c28a8d68206dd7482cf9` |
 | `src/iq3s_x.cuh` | ours (new) | `b3e208682ef2a76e78c9b6154e792dc1f39129f8fd7de381bac8a6fd6568146a` |
-| `src/kernels.cu` | Strata v0.2.10, modified by us | `d4dcf72c2197e089bf1ce1f56e5f47c230430b567dd640f59f4e8ec1862e1f2c` |
-| `src/kernels.hpp` | Strata v0.2.10, modified by us | `2a3462af98fa32cae21d5fd7bc283135b48a755b0b1c9bf2abcb6ec0f3eb9626` |
-| `src/model.cpp` | Strata v0.2.10, modified by us | `92f0a5194d373efefd71c9a18d75b2fbc9ac6396263da51bb66817531e4f41de` |
-| `src/model.hpp` | Strata v0.2.10, modified by us | `8afe18fa31518de0345444478f311a55f54c5ca420ad96f65e840f53e8d249e5` |
+| `src/kernels.cu` | Strata v0.2.10, modified by us | `e0427b54637fb411ffef2af8a17fb981d25cac635f87f9fab480ce00070533e7` |
+| `src/kernels.hpp` | Strata v0.2.10, modified by us | `73a590aa34408ff422efefe9874c7f9cba4aebc271da3718d16b607b44e6ce18` |
+| `src/model.cpp` | Strata v0.2.10, modified by us | `3fdb890d2a67771a5132ef46686dbec5e1323b17bb8a2372372cfba56f25a4b9` |
+| `src/model.hpp` | Strata v0.2.10, modified by us | `51830eb21547acbac1bb0d0279ec99f774092c82723b32ab2b46eb7ac3220c7a` |
 | `src/moe.cuh` | Strata v0.2.10, modified by us | `cfdffc68ff915639d7ef036d7e35bd67320c37e44511cc0964d10671f46598ac` |
 | `src/moe_mma.cu` | Strata v0.2.10, modified by us | `c66a70054fee82feca74ecf594eff5095dc207d84cee478e373f83bc92079b92` |
 | `src/moe_mma.cuh` | Strata v0.2.10, unchanged | `67d3739844a7615dac39c3f6e4f034ef8818ee4898764df813a53b69003ab9a3` |
@@ -56,14 +57,14 @@ With `FNX_EXPERT_MASK` unset it is our IQ3_S production engine (`bf9c7f1f…`) b
 | `src/p100_attn.cuh` | ours (new) | `4c12f01dde718b5522d474a341c395e0e0afb4963994da096aad48a193e4a3cc` |
 | `src/p100_dma.cuh` | ours (new) | `3fb9504019588f25eb09be21f87c9962b44d898489d468fd0916c0c592725b8a` |
 | `src/p100_dma_box.cuh` | ours (new) | `3eb3e1c8de418cbd27705577f761f783334ac72b411c27ebb4e25c39e6ff16f6` |
-| `src/p100_iq_gemm.cuh` | ours (new) | `e50bf72b75cc530510ee64299ce26fd358b9d9b00af0004bc2aee66fc136d739` |
-| `src/p100_moe.cu` | ours (new) | `8752b7afcc92de4d8bd65949b836e856bd517de92976a6227a26fce0e5216d8a` |
-| `src/p100_moe_rows.cuh` | ours (new) | `aba9e26d2b4e7064cd68ae6cece21c412b37c5d28b732b95318c37fc0e94ef9f` |
+| `src/p100_iq_gemm.cuh` | ours (new) | `f0c6745211d9b423cd745095ff685da32bd983f62c03c1a5e6a5ea19bb81f45e` |
+| `src/p100_moe.cu` | ours (new) | `7ffea370d816fc13d34f029f85bfca068ea2c6280ba2a9a212e7d04181f736e9` |
+| `src/p100_moe_rows.cuh` | ours (new) | `7a3eb105eea9f7edcc666b1be859d1293660f6c9f2386989721c08568f7ae3ce` |
 | `src/p100_over.hpp` | ours (new) | `ee4decf5138ff656fdfea8dfd6059d684871e3ae2c153077b1c88586f0a93f15` |
 | `src/peer_probe.hpp` | Strata v0.2.10, unchanged | `e5bc045c8f97d25b4cfc5c3b3d0e7b1f7d0cc258a6756ea13ceb7283fe2a0554` |
 | `src/pf_common.cuh` | Strata v0.2.10, modified by us | `5515e525fd5036bfecf7facb806b1622a89df0a183a0d1dc58d4b0be5328c116` |
 | `src/pf_ring_plan.hpp` | Strata v0.2.10, unchanged | `ce52cb8fc7812a9ecd31742d0c3c35999a62e1c6d3cb8d2f7ba971806aff59aa` |
-| `src/prefill.cu` | Strata v0.2.10, modified by us | `c870fd8c82ea9825e8dd145cc90ac2997e570455f8411d553b79e644d9e0ea36` |
+| `src/prefill.cu` | Strata v0.2.10, modified by us | `624ea008533993a455c6c6ad7863890de7033a385fc3db73045e2f03820e41da` |
 | `src/qsa.cuh` | Strata v0.2.10, modified by us | `7e94bdde945da43bb627c9bf7ed6fa8ff37a836741db8ebf1b5119dc6bba2d51` |
 | `src/rope.hpp` | Strata v0.2.10, unchanged | `91c54cfda3b34a0f4c515b35c11a57d2b76a6662e350b86a71dd73bd455568a1` |
 | `src/rope_gguf.hpp` | Strata v0.2.10, unchanged | `72ca61924332a6ef312f0a2ddf2fa6ace8368aee02e892fdb66333aebac19e56` |

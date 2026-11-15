@@ -35,6 +35,7 @@ struct Tabs {
     uint4* g2xxs;    // 256: 8 half (IQ2_XXS)
     uint4* g1p;      // 2048: 8 half, IQ1_M's grid value + 0.125
     uint4* g1m;      // 2048: the same - 0.125
+    uint32_t* fp4;   // 256: half2(e2m1[low nibble], e2m1[high nibble]) doubled, NVFP4 (edge0_patch.py)
 };
 
 struct Args {
@@ -77,6 +78,10 @@ __global__ void __launch_bounds__(256) tabs_kernel(Tabs t) {
         t.sign8[i] = mask8(uint32_t(i));
         t.nib[i] = as_u32(__floats2half2_rn(float(kvalues_iq4nl[i & 15]), float(kvalues_iq4nl[i >> 4])));
         t.nib4[i] = as_u32(__floats2half2_rn(float(int(i & 15) - 8), float(int(i >> 4) - 8)));
+        {   // edge0_patch.py: NVFP4's e2m1 values, doubled as ggml's kvalues_fp4
+            const float fv[16] = {0.f, 1.f, 2.f, 3.f, 4.f, 6.f, 8.f, 12.f, 0.f, -1.f, -2.f, -3.f, -4.f, -6.f, -8.f, -12.f};
+            t.fp4[i] = as_u32(__floats2half2_rn(fv[i & 15], fv[i >> 4]));
+        }
         const half2 q0 = __floats2half2_rn(float(int(i & 3) - 1), float(int((i >> 2) & 3) - 1));
         const half2 q1 = __floats2half2_rn(float(int((i >> 4) & 3) - 1), float(int((i >> 6) & 3) - 1));
         t.q20[i] = make_uint2(as_u32(q0), as_u32(q1));
@@ -115,8 +120,28 @@ __global__ void __launch_bounds__(256) tabs_kernel(Tabs t) {
 // ---- 32 consecutive values (run 32 * run of a row), as 4 groups of 8 values in 4 half2 words each (the dq_* formulas of iq_kernels.cu).
 // A lane takes 4 runs a slice: first all their block bytes (one round trip to memory, all in flight), then each run's tables.
 #define P100_U16(p, off) (uint32_t(*reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(p) + (off))))
+
+// NVFP4 (edge0_patch.py): a block of 64 is d[4] (UE4M3, a scale a 16 values) and qs[32] (sub-block s: bytes 8 s .. 8 s + 7, value j in
+// the low nibble of byte j, j + 8 in its high one); run r of a row = half r & 1 of block r >> 1: sub-blocks A = 2 h, B = 2 h + 1.
+// The scale's value is ggml's ue4m3 (with its 1/2, the codes being doubled) divided by NVFP4_PRE = 16 (the experts' tails take it back).
+__device__ __forceinline__ float nvfp4_scale(uint32_t x) {
+    x &= 255u;
+    if (x == 0u || x == 0x7Fu) return 0.f;
+    const int e = int(x >> 3) & 15, m = int(x & 7u);
+    return e == 0 ? ldexpf(float(m), -14) : ldexpf(1.0f + float(m) * 0.125f, e - 12);
+}
+template <typename P8>
+__device__ __forceinline__ void nvfp4_words(const P8* base, const int h, uint32_t* w) {
+    const int q = 4 + 16 * h;
+    w[0] = P100_U16(base, q) | (P100_U16(base, q + 2) << 16);
+    w[1] = P100_U16(base, q + 4) | (P100_U16(base, q + 6) << 16);
+    w[2] = P100_U16(base, q + 8) | (P100_U16(base, q + 10) << 16);
+    w[3] = P100_U16(base, q + 12) | (P100_U16(base, q + 14) << 16);
+    w[4] = P100_U16(base, 2 * h);
+}
 template <int TY> struct RunWords { static constexpr int n = 6; };
 template <> struct RunWords<20> { static constexpr int n = 5; };
+template <> struct RunWords<40> { static constexpr int n = 5; };   // NVFP4 (edge0_patch.py): codes of sub-blocks A, B; their scales
 template <> struct RunWords<2> { static constexpr int n = 5; };
 template <> struct RunWords<42> { static constexpr int n = 3; };
 template <> struct RunWords<22> { static constexpr int n = 3; };
@@ -234,6 +259,8 @@ __device__ __forceinline__ void run_load(const uint8_t* __restrict__ row, const 
         const uint32_t sl = x->scales_l[ib / 2], sh = x->scales_h, du = P100_U16(&x->d, 0);
         w[4] = ((sl >> (4 * (ib & 1))) & 15) | (((sh >> (2 * ib)) & 3) << 4);
         w[5] = du;
+    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py)
+        nvfp4_words(reinterpret_cast<const uint8_t*>(row) + 36 * (run >> 1), run & 1, w);
     } else if constexpr (TY == 20) {   // IQ4_NL
         const block_iq4_nl* x = reinterpret_cast<const block_iq4_nl*>(row) + run;
         w[0] = P100_U16(x->qs, 0) | (P100_U16(x->qs, 2) << 16);
@@ -290,6 +317,17 @@ __device__ __forceinline__ void run_finish(const Tabs& t, const uint32_t (&w)[Ru
             const half2 dd = j < 2 ? d0 : d1;
             out[j] = make_uint4(hmul(g.x ^ sg.x, dd), hmul(g.y ^ sg.y, dd), hmul(g.z ^ sg.z, dd), hmul(g.w ^ sg.w, dd));
         }
+#define FP4P(v) hmul(__ldg(t.fp4 + (((v) & 15) | (((v) >> 4) & 0xf0))), dd)
+    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py): out[0] values 0-7 (A's low nibbles), out[1] 8-15 (A's high), out[2], out[3] B's
+        const half2 da = dup_f(nvfp4_scale(w[4])), db = dup_f(nvfp4_scale(w[4] >> 8));
+#pragma unroll
+        for (int g = 0; g < 2; ++g) {
+            const uint32_t a = w[2 * g], b = w[2 * g + 1];
+            const half2 dd = g ? db : da;
+            out[2 * g] = make_uint4(FP4P(a & 0xffff), FP4P(a >> 16), FP4P(b & 0xffff), FP4P(b >> 16));
+            out[2 * g + 1] = make_uint4(FP4P((a >> 4) & 0x0fff), FP4P(a >> 20), FP4P((b >> 4) & 0x0fff), FP4P(b >> 20));
+        }
+#undef FP4P
     } else if constexpr (TY == 23 || TY == 20) {
         half2 dd;
         if constexpr (TY == 23) dd = dup_f(h2f(uint16_t(w[5])) * float(int(w[4]) - 32));
@@ -423,9 +461,9 @@ __global__ void gemm_kernel(Args a) {
 // ---- gemm4: a lane owns a row.  A warp reading 2-byte fields of 32 different rows fetches a cache line for each: 47 times the traffic of the
 // weights, which on the card's L2 costs as much as the products.  So a lane first reads its row's next IQ block with aligned 16-byte loads into
 // shared memory (the bytes in flight, one round trip) and decodes from there.
-template <int TY> inline constexpr int kSU = TY == 12 ? 10 : TY == 13 ? 12 : TY == 7 ? 7 : TY == 8 ? 10 : TY == 23 ? 10 : TY == 18 || TY == 21 ? 8 : TY == 22 ? 7 : TY == 20 || TY == 2 ? 6 : TY == 16 || TY == 29 ? 5 : 4;
-template <int TY> inline constexpr int kRunsGr = TY == 20 || TY == 2 || TY == 42 || TY == 7 || TY == 8 ? 4 : 8;
-template <int TY> inline constexpr int kGrBytes = TY == 12 ? 144 : TY == 13 ? 176 : TY == 7 ? 96 : TY == 8 ? 136 : TY == 18 ? 98 : TY == 21 ? 110 : TY == 22 ? 82 : TY == 23 ? 136 : TY == 20 || TY == 2 ? 72 : TY == 16 ? 66 : TY == 29 ? 56 : 36;
+template <int TY> inline constexpr int kSU = TY == 12 ? 10 : TY == 13 ? 12 : TY == 7 ? 7 : TY == 8 ? 10 : TY == 23 ? 10 : TY == 18 || TY == 21 ? 8 : TY == 22 ? 7 : TY == 20 || TY == 2 || TY == 40 ? 6 : TY == 16 || TY == 29 ? 5 : 4;
+template <int TY> inline constexpr int kRunsGr = TY == 20 || TY == 2 || TY == 42 || TY == 7 || TY == 8 || TY == 40 ? 4 : 8;
+template <int TY> inline constexpr int kGrBytes = TY == 12 ? 144 : TY == 13 ? 176 : TY == 7 ? 96 : TY == 8 ? 136 : TY == 18 ? 98 : TY == 21 ? 110 : TY == 22 ? 82 : TY == 23 ? 136 : TY == 20 || TY == 2 || TY == 40 ? 72 : TY == 16 ? 66 : TY == 29 ? 56 : 36;
 
 template <int TY>
 __device__ __forceinline__ void run_load_s(const uint8_t* p, const int run, uint32_t (&w)[RunWords<TY>::n]) {
@@ -482,6 +520,8 @@ __device__ __forceinline__ void run_load_s(const uint8_t* p, const int run, uint
         const uint32_t sl = x->scales_l[ib / 2], sh = x->scales_h, du = P100_U16(&x->d, 0);
         w[4] = ((sl >> (4 * (ib & 1))) & 15) | (((sh >> (2 * ib)) & 3) << 4);
         w[5] = du;
+    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py): a group is two blocks, four runs
+        nvfp4_words(p + 36 * ((run & 3) >> 1), run & 1, w);
     } else if constexpr (TY == 20 || TY == 2) {
         const block_iq4_nl* x = reinterpret_cast<const block_iq4_nl*>(p) + (run & 3);
         w[0] = P100_U16(x->qs, 0) | (P100_U16(x->qs, 2) << 16);
@@ -529,6 +569,8 @@ __device__ __forceinline__ void stage_tabs(const Tabs& t, uint4* tab, const int 
     } else if constexpr (TY == 29) {
     } else if constexpr (TY == 2) {
         for (int i = tid; i < 64; i += nt) tab[i] = __ldg(reinterpret_cast<const uint4*>(t.nib4) + i);
+    } else if constexpr (TY == 40) {   // edge0_patch.py
+        for (int i = tid; i < 64; i += nt) tab[i] = __ldg(reinterpret_cast<const uint4*>(t.fp4) + i);
     } else if constexpr (TY == 23 || TY == 20) {
         for (int i = tid; i < 64; i += nt) tab[i] = __ldg(reinterpret_cast<const uint4*>(t.nib) + i);
     } else {
@@ -607,6 +649,17 @@ __device__ __forceinline__ void finish_s(const uint4* tab, const Tabs& t, const 
             const half2 dd = j < 2 ? d0 : d1;
             out[j] = make_uint4(hmul(gv[j].x, dd), hmul(gv[j].y, dd), hmul(gv[j].z, dd), hmul(gv[j].w, dd));
         }
+#define FP4P(v) nib_pair_s(reinterpret_cast<const uint32_t*>(tab), (v), dd)
+    } else if constexpr (TY == 40) {   // NVFP4 (edge0_patch.py): out[0] values 0-7 (A's low nibbles), out[1] 8-15 (A's high), out[2], out[3] B's
+        const half2 da = dup_f(nvfp4_scale(w[4])), db = dup_f(nvfp4_scale(w[4] >> 8));
+#pragma unroll
+        for (int g = 0; g < 2; ++g) {
+            const uint32_t a = w[2 * g], b = w[2 * g + 1];
+            const half2 dd = g ? db : da;
+            out[2 * g] = make_uint4(FP4P(a & 0xffff), FP4P(a >> 16), FP4P(b & 0xffff), FP4P(b >> 16));
+            out[2 * g + 1] = make_uint4(FP4P((a >> 4) & 0x0fff), FP4P(a >> 20), FP4P((b >> 4) & 0x0fff), FP4P(b >> 20));
+        }
+#undef FP4P
     } else if constexpr (TY == 23 || TY == 20 || TY == 2) {
         const uint32_t* nib = reinterpret_cast<const uint32_t*>(tab);
         half2 dd;
@@ -750,7 +803,7 @@ inline const Tabs& tabs(cudaStream_t st) {
     if (t.g3xxs == nullptr) {
         cudaMalloc(&t.g3xxs, 256 * 8); cudaMalloc(&t.g3s, 512 * 8); cudaMalloc(&t.g2s, 1024 * 16); cudaMalloc(&t.sign8, 256 * 16);
         cudaMalloc(&t.sign7, 128 * 16); cudaMalloc(&t.nib, 256 * 4); cudaMalloc(&t.nib4, 256 * 4); cudaMalloc(&t.q20, 256 * 8); cudaMalloc(&t.s12, 16 * 4); cudaMalloc(&t.s6, 64 * 4);
-        cudaMalloc(&t.g2xxs, 256 * 16); cudaMalloc(&t.g1p, 2048 * 16); cudaMalloc(&t.g1m, 2048 * 16);
+        cudaMalloc(&t.g2xxs, 256 * 16); cudaMalloc(&t.g1p, 2048 * 16); cudaMalloc(&t.g1m, 2048 * 16); cudaMalloc(&t.fp4, 256 * 4);
         tabs_kernel<<<8, 256, 0, st>>>(t);
     }
     return t;

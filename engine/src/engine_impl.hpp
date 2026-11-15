@@ -47,6 +47,12 @@ struct CardBuf {
     Job *jobs_gu, *jobs_dn, *dense[MAXT + 1];
     float *gu, *part;
     uint16_t *xh16 = nullptr, *h16 = nullptr;   // FNX_P100_ROWS: mixed and h as FP16, for the row kernel
+    // edge0_patch.py (FNX_LATENT): D's output, its f16 rows (t * LAT_G + group), z and its q8_1, U's output [T][N]
+    float *lxl = nullptr, *lz = nullptr, *latu = nullptr;
+    uint16_t* lxl16 = nullptr;
+    uint8_t* lzq = nullptr;
+    // edge0_patch6.py (FNX_LAT_SPLIT): host mailboxes of D's half (lxg) and of z's part (lzs), written by the other card; *_next: the other card's
+    unsigned long long *lxg_in = nullptr, *lxg_next = nullptr, *lzs_in = nullptr, *lzs_next = nullptr;
     float* sh_gu;                     // the shared expert: [T][gate | up]
     void* sh_hq;                      // its h as q8_1
     float *ple_emb, *ple_key, *ple_val;

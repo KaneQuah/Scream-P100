@@ -297,6 +297,23 @@ void router_route(const uint16_t* W, const float* x, float* logits, int T, int* 
 // FNX_EXPERT_MASK (maska_patch.py): rows of `stride` floats whose first NEXP are a layer's router logits; a dropped
 // expert's (its bit in keep clear) to -inf, so no top 10 or guess ever picks it. keep null: nothing to do
 void expert_mask_logits(float* logits, int rows, int stride, const unsigned* keep, void* st);
+// Edge0's latent MoE (edge0_patch.py): the gate|up jobs' rows to t * LAT_G + label[expert]; swiglu with each expert's gate and
+// up scales (list: only when the list holds an expert, as p100_swiglu_after); the routed rows' sum by group, z [T][LAT_W]
+// (router weight and down scale folded in; each card its ff part); z as f16 for the prompt path
+void lat_rows(Job* jobs_gu, const int* njobs, const int* labels, void* st);
+void lat_bigrows(BigJob* jobs_gu, const int* njobs, int njobs_cap, const int* labels, void* st);
+void lat_swiglu_h16(const float* gu, int ffs, int P, uint16_t* h16, const int* topi, const float* esc, const int* list, void* st);
+void lat_z(const float* part, const int* topi, const float* topw, const int* labels, const float* esc, int T, float* z, void* st);
+void lat_z16(const float* part, const int* topi, const float* topw, const int* labels, const float* esc, int T, uint16_t* z, void* st);
+// edge0_patch6.py (FNX_LAT_SPLIT): a window's two latent exchanges (card h: groups h LAT_GH ..), k_ring's tagged words in host mailboxes
+// (in: this card's, written by the other card; next: the other card's; lat_x_words() each, two sets by the tag; tag and call as ring_sum's).
+// lat_xg: x [T][LAT_W] f32 with this card's half at column h LAT_HW -> xl16 [T][LAT_W] f16, the other half from the other card.
+// lat_zs: z [T][LAT_W] f32 (this card's ff part) -> zh [T][LAT_HW] f32: both cards' parts of this card's groups
+size_t lat_x_words();
+void lat_xg(const float* x, uint16_t* xl16, unsigned long long* in, unsigned long long* next, int T, int h, const unsigned* tag, int call,
+            unsigned* err, void* st);
+void lat_zs(const float* z, float* zh, unsigned long long* in, unsigned long long* next, int T, int h, const unsigned* tag, int call,
+            unsigned* err, void* st);
 // gu rows of 2*ffs: [gate | up] (A: per-expert stacked rows, stride sa). sh_down (Q4_K experts only): the shared
 // expert's swiglu of sh_gu ([T][2 * sh_ffs]) and down (N rows) into sh_out (row stride N), in the same launch
 void moe_gate_up(const DW& A, size_t sa, const Job* jobs, const int* njobs, int njobs_max, const void* xq, float* gu, void* st,
@@ -335,6 +352,7 @@ struct RingMoe {
     const float* part = nullptr;
     const float* topw = nullptr;
     const float* logits = nullptr;
+    const float* lat = nullptr;   // edge0_patch.py: the latent MoE's U output [T][N], the routed sum already (part's rows t * TOPK unused)
 };
 
 // the sum across the cards (ring; words of two fp16 values and a tag); bufs are this card's receive buffers, peers'

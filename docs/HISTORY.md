@@ -31,6 +31,9 @@ digits of each binary's SHA-256.
 | 13 Nov | `c213636c` | UD-Q4_K_XL settings only: a 512k profile (`FNX_EXPERT_DYN_GIB=18`: the K/V pool borrows up to 7.6 GiB of expert slots a card), the 256k one with the same 18, and 2 guessed experts a row in the next-layer copies (`FNX_PREFETCH_WANT=2`, was 6) | UD-Q4_K_XL in the benchmark: fresh 41.4 → 50.3, edits 45.3 / 43.9 → 62.6 / 63.5, long read 726 → 765, the picture's first answer 48.4 → 4.2 s (512k); reads to 501k tokens at 737 tok/s |
 | 13 Nov | **`40ef6d53`** | `FNX_EXPERT_MASK`: the router picks only from the experts ISTA-DASLab's Coder release keeps (256 of 512 a layer), on either file's own weights; unset, the same bits as `bf9c7f1f` (KL 0, 27 of 27) | lossy by design. IQ3_S at λ 0.15: fresh 68.8 → 75.2, edit py 117-119 → 130-131, long read 943 → 979; UD-Q4_K_XL at λ 0.15: fresh 55.3 → 60.9, edit py 77.5 → 111; **this release** (README, "Coder") |
 | 13 Nov | `c213636c` | UD-Q4_K_XL settings only: the MTP draft layer's experts as Q4_0 from the BF16 tensors (`FNX_MTP_EXPERTS=q4_0`, `scripts/mtp_q4.py`) instead of Strata's 2-bit file, the same VRAM; the same answers token for token | fresh writing 46.99 -> 51.84 (+10.3 %) at `FNX_ROUTE_PRIOR=0`, edits equal; IQ3_S +1 % (kept on 2-bit) |
+| 14 Nov | `1949d99c` | Edge0-145B (`FNX_LATENT`, `edge0_patch.py` to `edge0_patch4.py`): the latent experts, D/U and group labels mapped beside the skeleton GGUF; an NVFP4 type in the P100 kernels for writing and for prompts (64-value blocks, four UE4M3 scales, the E2M1 table; the scales divided by 16 so that FP16 sums cannot overflow, the experts' tail scales times 16); the latent branch in writing and in both prompt variants (D, the experts on row `t * 8 + group`, `z`, U into the ring's sum); D and U whole on each card. 512k did not fit (about 100 MiB of VRAM left), 256k did | Edge0 at 256k: fresh 44.9, edits 56.3 / 56.5, a 36k read 575; a layer recomputed in NumPy (FP64) from the engine's own inputs: cosine 0.99990 |
+| 15 Nov | `de45a5b6` | Edge0 settings only: `FNX_EXPERT_RAM_GIB` 36 → 31.5. At 36 only 4,603 experts were on the cards (Flash-Next IQ3_S: about 10,000) and the rest of the VRAM went to K/V pages a 256k context never needs | fresh 44.9 → 50.7, edits 56 → 81-84; reading unchanged |
+| 15 Nov | **`f6088fde`** | Edge0: D and U by group across the cards (`FNX_LAT_SPLIT`, `edge0_patch6.py`): 1.74 GiB a card less, two exchanges more a layer. The prompt path's FFN half runs in three passes over the cards when it is on, each pass ending at an exchange's wait: the prompt path queues the cards one after the other from one host thread, and a kernel's first launch can wait for the whole context (CUDA 12 loads modules lazily), so a wait queued before the other card's send hung the first try in the prompt warm-up | at 512k with `FNX_EXPERT_RAM_GIB=28` (9,041 experts on the cards): fresh 54.9, edits 94.5 / 98.4, a 36k read 657.8 (+14 %), 512k fits; with `FNX_LATENT` unset the same bits as `c213636c` (KL 0, 18 of 18); **this release** (README, "Edge0-145B") |
 
 ## Tried and dropped
 
@@ -53,10 +56,14 @@ Kept in the code where it was cheap, off by default (see [SWITCHES.md](SWITCHES.
 - For UD-Q4_K_XL: more next-layer copies (9 a row: edits −20 %), half-size staging buffers to save 2 GiB of RAM (reads
   −19-33 %), 384 MiB of VRAM reserve instead of 512 (nothing), shorter lookup drafts (nothing: the same copies per token),
   the GDN state snapshots shrunk for windows of 8 rows (the prompt path borrows that block as its scratch).
+- For Edge0: D and U while writing on the P100 row kernel instead of the dense int8 product (`edge0_patch5.py`, not in this
+  release): fresh writing 44.9 → 36.1. The row kernel gives each row one thread or a few, which reads D's and U's long rows
+  (2,560 and 14,336 values) poorly; the dense product's loads are coalesced. The profile we read it from counted the
+  experts' copies in the same phases as D and U.
 
 ## The patch scripts
 
-`history/patches/` holds the scripts of the last steps (11-13 Nov) as they were run on our build machine. They edit the
+`history/patches/` holds the scripts of the last steps (11-15 Nov) as they were run on our build machine. They edit the
 development tree in place and name its paths, so they will not run elsewhere, and their changes are already in `engine/`.
 `gen_iq3s_x.sh` there is the original of `scripts/gen_iq3s_x.sh`. The full change against Strata is
 [upstream-v0.2.10.diff](upstream-v0.2.10.diff).
