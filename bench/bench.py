@@ -37,8 +37,8 @@ STRATA_V029 = "c62d5e3a15b40ea51c96aae9e8d36928965f53ab"   # Strata v0.2.9 (gith
 INPUT_PATHS = ("docs", "src", "tools/collect_profile_traces.py")
 
 # Our numbers (2 x Tesla P100 16 GB PCIe x16 Gen3, 2 x Xeon Bronze 3106, 96 GB DDR4; profile/ with FNX_ROUTE_PRIOR=0): this
-# benchmark on this release's engine (c213636c) as build.sh built it, each on a freshly loaded engine, 13 Nov 2026, one run each
-# (README, "Our numbers"; UD-Q4_K_XL's in a second window that day, with the profiles as they are now). Keys: --ours, or the model
+# benchmark, each on a freshly loaded engine, one run each (README, "Our numbers"): IQ3_S on 13 Nov 2026 on the engine build.sh
+# built, UD-Q4_K_XL on 16 Nov 2026 on this folder's sources built with PF_JOB=96 (e56c3f60). Keys: --ours, or the model
 # the server reports (auto: q4_k_xl is the 512k profile; edge0 Edge0-145B's).
 REFERENCE = {
     "iq3_s": {   # the IQ3_S profile (512k); pictures were off in this run (our rounds: first answer 2.6-2.7 s, then 52.4-52.6)
@@ -50,15 +50,15 @@ REFERENCE = {
         "fresh": 63.27, "edit_py": 93.55, "edit_md": 101.9, "long_read": 767.7, "long_write": 61.4,
         "medium": {6000: 613, 12000: 717, 18000: 759, 24000: 710, 36000: 850, 48000: 783, 72000: 817},
     },
-    "q4_k_xl": {   # the UD-Q4_K_XL profile (512k), the lookup table cold at the start (README, "Unsloth's UD-Q4_K_XL")
-        "fresh": 50.26, "edit_py": 62.6, "edit_md": 63.5, "long_read": 765.0, "long_write": 48.5,
-        "medium": {6000: 540, 12000: 681, 18000: 721, 24000: 687, 36000: 813, 48000: 732, 72000: 781},
-        "image_first_s": 4.23, "image_write": 42.6,
+    "q4_k_xl": {   # the UD-Q4_K_XL profile (512k), a 96-row build, the lookup table cold at the start (README, "Unsloth's UD-Q4_K_XL")
+        "fresh": 50.92, "edit_py": 62.45, "edit_md": 63.7, "long_read": 794.6, "long_write": 49.2,
+        "medium": {6000: 537, 12000: 716, 18000: 767, 24000: 722, 36000: 877, 48000: 779, 72000: 840},
+        "image_first_s": 6.45, "image_write": 46.8,   # the first run of that window; the three runs after it: 2.99-3.02 s
     },
     "q4_k_xl_256k": {   # its 256k profile, run right after the 512k one: the lookup table mostly in the page cache
-        "fresh": 51.07, "edit_py": 63.0, "edit_md": 63.7, "long_read": 900.8, "long_write": 48.0,
-        "medium": {6000: 603, 12000: 755, 18000: 793, 24000: 752, 36000: 887, 48000: 805, 72000: 853},
-        "image_first_s": 4.08, "image_write": 43.2,
+        "fresh": 50.94, "edit_py": 63.35, "edit_md": 64.95, "long_read": 929.0, "long_write": 48.5,
+        "medium": {6000: 605, 12000: 808, 18000: 856, 24000: 807, 36000: 969, 48000: 869, 72000: 930},
+        "image_first_s": 2.99, "image_write": 47.0,
     },
     "edge0": {   # Edge0-145B (512k), 15 Nov 2026, our Edge0 production engine (f6088fde, this folder's sources) through run.sh (README, "Edge0-145B")
         "fresh": 55.11, "edit_py": 96.55, "edit_md": 99.05, "long_read": 669.2, "long_write": 57.3,

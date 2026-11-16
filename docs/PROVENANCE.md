@@ -3,10 +3,13 @@
 Compared with Strata v0.2.10 (`github.com/Niko1221/Strata`, commit `ffa80d73133ea5c548aefe57889a16e8085a938f`), directory `src/split/`.
 Strata's `src/split/` is itself a port of sFNX by John Fink (`third_party/sfnx/NOTICE.md`). The full diff is `upstream-v0.2.10.diff`.
 SHA-256 values are those of the sources of our Edge0 production engine (`strata-split-2`, binary SHA-256
-`f6088fdee182bbe6…`, 15 Nov 2026): our Coder engine (`40ef6d531143d73d…`, which is our production engine for UD-Q4_K_XL,
+`f6088fdee182bbe6…`, 15 Nov 2026): our Coder engine (`40ef6d531143d73d…`: our UD-Q4_K_XL production engine of 13 Nov,
 `c213636ce3de2182…`, with `history/patches/maska_patch.py` applied) with the five `history/patches/edge0_patch*.py` applied.
 With `FNX_EXPERT_MASK` and `FNX_LATENT` unset it gives our production engines' bits (see README, "Our numbers", "Coder" and
-"Edge0-145B").
+"Edge0-145B"). Since 16 Nov 2026 our UD-Q4_K_XL production engine is `6ccc87af7e9baf50…`: `c213636ce3de2182…`'s sources
+built with `-DSTRATA_SPLIT_PF_JOB=96` (no source file differs; README, "Build"). This folder's sources built with that
+option (`e56c3f604d2eb5a7…`) gave its first-token logits in 29 of 29 requests of the benchmark, and `PF_JOB=96 bash build.sh`'s
+own build on our server (`a1e9ac07946cee2f…`) gave the same ones.
 
 | File | Origin | SHA-256 |
 |---|---|---|

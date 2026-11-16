@@ -4,8 +4,12 @@
 #
 #   bash build.sh                                   # nvcc from PATH, host compiler g++-13 if present
 #   CUDA=/usr/local/cuda-12.4 JOBS=8 bash build.sh   # a toolkit root and the parallel jobs
+#   PF_JOB=96 bash build.sh                         # the build for UD-Q4_K_XL (README, "Unsloth's UD-Q4_K_XL")
 #
 # Environment:
+#   PF_JOB    rows of one expert per prompt-path job, a compile-time constant: 64 (default: our IQ3_S and Edge0-145B
+#             production) or 96 (our UD-Q4_K_XL production since 16 Nov 2026: its long prompts read faster, the same
+#             bits). A binary built with one value runs every model; only the reading speed differs.
 #   CUDA      toolkit root (its bin/nvcc is used); empty: nvcc from PATH. Must be CUDA 12.x: CUDA 13 dropped sm_60.
 #   HOSTCXX   host C++ compiler for nvcc and the link; default g++-13, else g++. CUDA 12.4 accepts gcc up to 13.
 #   JOBS      parallel compile jobs (default 8). Each nvcc job takes 1-2 GB of RAM; never build beside a loaded engine
@@ -20,12 +24,15 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 B=${B:-$HERE/build}
 JOBS=${JOBS:-8}
+PF_JOB=${PF_JOB:-64}
 GG=${GG:-$HERE/third_party/llama.cpp}
 LLAMA_REPO=${LLAMA_REPO:-https://github.com/ggml-org/llama.cpp.git}
 LLAMA_COMMIT=3cf03257f219afbe7334045ff7c6a06ac68c627d   # the commit Strata v0.2.9 and v0.2.10 both pin (third_party/ggml/VERSION.txt)
 
 say() { echo "build.sh: $*"; }
 die() { echo "build.sh: $*" >&2; exit 1; }
+
+case $PF_JOB in 64|96) ;; *) die "PF_JOB=$PF_JOB: 64 or 96 (the P100 kernels' jobs fill at most two tiles of 48 rows)";; esac
 
 # --- toolchain
 . "$HERE/scripts/toolchain.sh"
@@ -50,12 +57,12 @@ bash "$HERE/scripts/gen_iq3s_x.sh" "$GG" "$tmp" >/dev/null || die "scripts/gen_i
 cmp -s "$tmp" "$HERE/engine/src/iq3s_x.cuh" || die "engine/src/iq3s_x.cuh does not match what $GG's vecdotq.cuh gives"
 say "llama.cpp headers at $LLAMA_COMMIT; engine/src/iq3s_x.cuh matches them"
 
-# --- configure and build (the production build: Release, sm_60, 2 cards, prompt-path job 64 rows)
+# --- configure and build (the production build: Release, sm_60, 2 cards, prompt-path jobs of 64 rows, or 96 for UD-Q4_K_XL)
 cmake -S "$HERE" -B "$B" -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CUDA_COMPILER="$NVCC" -DCMAKE_CUDA_HOST_COMPILER="$HOSTCXX" -DCMAKE_CXX_COMPILER="$HOSTCXX" \
-  -DCMAKE_CUDA_ARCHITECTURES=60 -DSTRATA_SPLIT_ARCH=60 -DSTRATA_SPLIT_CARDS=2 -DSTRATA_SPLIT_PF_JOB=64 \
+  -DCMAKE_CUDA_ARCHITECTURES=60 -DSTRATA_SPLIT_ARCH=60 -DSTRATA_SPLIT_CARDS=2 -DSTRATA_SPLIT_PF_JOB="$PF_JOB" \
   -DSTRATA_GGML_DIR="$GG" ${CUDA:+-DCUDAToolkit_ROOT="$CUDA"}
-say "building with $JOBS jobs (a full build took about 20 minutes on 2 x Xeon Bronze 3106; kernels_p2.cu alone about 17)"
+say "building with $JOBS jobs, prompt-path jobs of $PF_JOB rows (a full build took about 20 minutes on 2 x Xeon Bronze 3106; kernels_p2.cu alone about 17)"
 nice -n 10 cmake --build "$B" --target strata-split-2 -j "$JOBS"
 
 # --- checks on the result
