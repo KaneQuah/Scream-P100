@@ -16,7 +16,7 @@
 #   bash setup.sh /data/flash-next --check                    # the checks and what is still to do; changes nothing
 #   bash setup.sh /data/flash-next --models /mnt/models --no-pictures --route-prior 0.15
 #   bash setup.sh /data/flash-next --ram 64                   # a machine with 64 GB of RAM (README, "64 GB of RAM")
-#   bash setup.sh /data/flash-next-q4 --model q4_k_xl         # Unsloth's UD-Q4_K_XL (README, "Unsloth's UD-Q4_K_XL"; build with PF_JOB=96)
+#   bash setup.sh /data/flash-next-q4 --model q4_k_xl         # Unsloth's UD-Q4_K_XL (README, "Unsloth's UD-Q4_K_XL")
 #   bash setup.sh /data/edge0 --model edge0                   # Edge0's Edge0-145B-NVFP4 (README, "Edge0-145B")
 #   bash setup.sh /data/flash-next-coder --models /data/flash-next/models --coder   # the Coder's experts only (README, "Coder")
 #
@@ -113,8 +113,8 @@ gb() { awk -v b="$1" 'BEGIN {printf "%.1f GB", b / 1e9}'; }
 [ -d "$GG/gguf-py/gguf" ] || die "no $GG/gguf-py: run 'bash build.sh' first (it fetches llama.cpp)"
 for t in git curl sha256sum python3; do command -v $t >/dev/null || die "$t is needed"; done
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || die "Python 3.10 or newer is needed"
-if [ "$MODEL" = q4_k_xl ] && ! grep -qs '^STRATA_SPLIT_PF_JOB:[A-Z]*=96$' "$HERE/build/CMakeCache.txt"; then
-  say "note: this engine was built with prompt-path jobs of 64 rows; UD-Q4_K_XL reads long prompts faster on one built with 'PF_JOB=96 bash build.sh' (README, \"Unsloth's UD-Q4_K_XL\")"
+if grep -qs '^STRATA_SPLIT_PF_JOB:[A-Z]*=64$' "$HERE/build/CMakeCache.txt"; then
+  say "note: this engine was built with prompt-path jobs of 64 rows; one built with the current 'bash build.sh' (96 rows) reads long prompts faster (README, \"Build\")"
 fi
 
 GPU_LIST=0,1

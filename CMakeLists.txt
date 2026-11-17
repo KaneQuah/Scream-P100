@@ -4,7 +4,8 @@
 #
 #   -DSTRATA_GGML_DIR=<llama.cpp checkout at 3cf03257f219afbe7334045ff7c6a06ac68c627d>   (required: ggml-cuda headers)
 #   -DCMAKE_CUDA_ARCHITECTURES=60 -DSTRATA_SPLIT_ARCH=60 -DSTRATA_SPLIT_CARDS=2 -DSTRATA_SPLIT_PF_JOB=64   (the defaults here)
-#   -DSTRATA_SPLIT_PF_JOB=96 (build.sh with PF_JOB=96): the build for UD-Q4_K_XL, its long prompts read faster (README)
+#   -DSTRATA_SPLIT_PF_JOB=96 (what build.sh passes; PF_JOB=64 bash build.sh passes 64): our production for all three models since
+#   17 Nov 2026, long prompts read faster (README)
 cmake_minimum_required(VERSION 3.22)
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
@@ -22,7 +23,7 @@ set(STRATA_BUILD_SPLIT ON)
 option(STRATA_BUILD_TESTS "also build sFNX's CPU unit tests and test drivers (not run for this release)" OFF)
 set(STRATA_SPLIT_ARCH "60" CACHE STRING "compute capability the engine is built for (Tesla P100: 60)")
 set(STRATA_SPLIT_CARDS "2" CACHE STRING "card counts to build (only 2 has been run on P100)")
-set(STRATA_SPLIT_PF_JOB "64" CACHE STRING "rows of one expert per prompt-path job (production: 64 for IQ3_S and Edge0-145B, 96 for UD-Q4_K_XL)")
+set(STRATA_SPLIT_PF_JOB "64" CACHE STRING "rows of one expert per prompt-path job (build.sh passes 96, our production for all three models)")
 set(STRATA_GGML_DIR "" CACHE PATH "llama.cpp checkout at the pinned commit (its ggml-cuda headers)")
 
 if(NOT STRATA_GGML_DIR OR NOT EXISTS "${STRATA_GGML_DIR}/ggml/src/ggml-cuda/vecdotq.cuh")

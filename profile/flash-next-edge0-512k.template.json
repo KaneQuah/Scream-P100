@@ -64,7 +64,7 @@
   "FNX_PREFETCH_MIN_T": "4",
   "FNX_ROUTE_PRIOR": "{{ROUTE_PRIOR}}",
   "FNX_DMA_SPLIT": "2",
-  "FNX_PF_JOBV": "7",
+  "FNX_PF_JOBV": "6",
   "FNX_PF_CONV": "3",
   "FNX_QSA_TILE": "1",
   "FNX_FOLD": "7",

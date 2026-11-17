@@ -7,10 +7,10 @@ benchmark (see "Our numbers"):
 
 | Model file and profile | Context | RAM | Fresh writing | Edits (py / md) | Reading 38,862 tokens |
 |---|---:|---|---:|---:|---:|
-| ISTA-DASLab's GSQ-RCO **IQ3_S** (`setup.sh DATA`) | 524,288 | 96 GB | 66.6 tok/s | 111.0 / 116.0 | 954 tok/s |
-| the same in the **64 GB mode** (`setup.sh DATA --ram 64`) | 262,144 | 64 GB | 63.3 | 93.6 / 101.9 | 768 |
-| Unsloth's **UD-Q4_K_XL** (`setup.sh DATA --model q4_k_xl`) | 524,288 | 96 GB | 50.3 | 62.6 / 63.5 | 765 |
-| Edge0's **Edge0-145B NVFP4** (`setup.sh DATA --model edge0`) | 524,288 | 96 GB | 55.1 | 96.6 / 99.1 | 669 |
+| ISTA-DASLab's GSQ-RCO **IQ3_S** (`setup.sh DATA`) | 524,288 | 96 GB | 66.5 tok/s | 110.7 / 115.8 | 1,012 tok/s |
+| the same in the **64 GB mode** (`setup.sh DATA --ram 64`) | 262,144 | 64 GB | 63.8 | 93.6 / 99.2 | 807 |
+| Unsloth's **UD-Q4_K_XL** (`setup.sh DATA --model q4_k_xl`) | 524,288 | 96 GB | 50.9 | 62.5 / 63.7 | 795 |
+| Edge0's **Edge0-145B NVFP4** (`setup.sh DATA --model edge0`) | 524,288 | 96 GB | 55.0 | 96.6 / 98.9 | 691 |
 
 > **Built for these files, on Tesla P100 cards.** Files with other expert types (Q6_K, Q3_K, Q2_K, ...) do not use
 > this port's P100 kernels and run slower than Strata itself, or not at all (see "Known limitations"). On other cards,
@@ -27,7 +27,8 @@ instruction given in Slovenian (see "Coder").
 
 The engine is one executable. [Strata](https://github.com/Niko1221/Strata)'s Python server (v0.2.9) drives it and gives
 you the OpenAI-compatible API, the tokenizer and the chat template. This repository holds the engine's sources exactly
-as our Edge0 production build (`f6088fde`) was built from them: our Coder build (`40ef6d53`, our production engine for
+as our Edge0 production build was built from them (`e56c3f60` since 17 Nov 2026, with prompt-path jobs of 96 rows as
+`build.sh` builds them; `f6088fde` with 64 rows before): our Coder build (`40ef6d53`, our production engine for
 UD-Q4_K_XL plus the Coder switch, which when off gives our IQ3_S production engine's bits) plus Edge0's latent experts,
 which when off give our UD-Q4_K_XL production engine's bits (see "Our numbers"). It also has the build, run configs for
 each model, and the benchmark we measure with. The models are not included: you download them yourself (see "Prepare
@@ -41,34 +42,41 @@ the model files").
 
 ### This release, with the benchmark
 
-[bench/bench.py](bench/bench.py) through Strata v0.2.9's server. The IQ3_S columns ran on 13 Nov 2026 on the engine that
-this repository's `build.sh` built on our server (`f85a4aba`), in a test window in the morning. The UD-Q4_K_XL columns ran
-on 16 Nov (19:30-19:50), with the UD-Q4_K_XL profiles as they are now in `profile/`, on this folder's sources built with
-prompt-path jobs of 96 rows (`e56c3f60`; see "Build", `PF_JOB=96`), which gives the bits of our production engine for
-UD-Q4_K_XL (`6ccc87af`, below). Each profile was written by `profile/fill_profile.py`
+[bench/bench.py](bench/bench.py) through Strata v0.2.9's server, on this folder's sources built with prompt-path jobs of
+96 rows (`e56c3f60`; `build.sh`'s default, see "Build"), with the profiles as they are now in `profile/`. The IQ3_S
+columns ran on 17 Nov 2026 (09:24-09:44), the UD-Q4_K_XL columns on 16 Nov (19:30-19:50). That build gives the bits of
+our production engines for IQ3_S (`36409ddc`) and UD-Q4_K_XL (`6ccc87af`, both below) and is our production engine for
+Edge0-145B. Each profile was written by `profile/fill_profile.py`
 at `FNX_ROUTE_PRIOR=0` (exact, see "Exact and lossy") and run once, on a freshly loaded engine. Writing is at temperature 0
 unless marked. These are the benchmark's own inputs, so your run compares with them directly (it prints them beside
-yours). Edge0-145B's run, on 15 Nov, is in "Edge0-145B".
+yours). Edge0-145B's run, on 17 Nov, is in "Edge0-145B".
 
 | Test | IQ3_S, 512k | IQ3_S, 64 GB mode, 256k | UD-Q4_K_XL, 512k | UD-Q4_K_XL, 256k |
 |---|---:|---:|---:|---:|
-| Fresh writing: 12 new prompts, 300 tokens each (tok/s) | **66.6** | **63.3** | **50.9** | **50.9** |
-| Edit: the model repeats Strata's `tools/collect_profile_traces.py` with a variable renamed (1,197 tokens) | **111.0** | **93.6** | **62.5** | **63.4** |
-| Edit: the model repeats 5,000 characters of Strata's `docs/SECOND_GPU.md` with a word replaced (1,228 tokens) | **116.0** | **101.9** | **63.7** | **65.0** |
-| Cold read of 38,862 tokens | **954** | **768** | **795** | 929 (not cold, see below) |
-| Writing right after that read | 61.8 | 61.4 | 49.2 | 48.5 |
-| New messages on a running conversation: 2,029 / 3,586 / 5,259 / 7,142 / 11,081 / 14,212 / 20,243 tokens | 700 / 815 / 853 / 803 / 941 / 876 / 904 | 613 / 717 / 759 / 710 / 850 / 783 / 817 | 537 / 716 / 767 / 722 / 877 / 779 / 840 | 605 / 808 / 856 / 807 / 969 / 869 / 930 |
-| Picture (96 x 96 PNG, encoder on the CPU): time to the answer; writing after it (sampled) | off in this run | off | 6.5 s; 46.8 | 3.0 s; 47.0 |
-| Load, until the server reports loaded | 312 s | 249 s | 209 s | 201 s |
+| Fresh writing: 12 new prompts, 300 tokens each (tok/s) | **66.5** | **63.8** | **50.9** | **50.9** |
+| Edit: the model repeats Strata's `tools/collect_profile_traces.py` with a variable renamed (1,197 tokens) | **110.7** | **93.6** | **62.5** | **63.4** |
+| Edit: the model repeats 5,000 characters of Strata's `docs/SECOND_GPU.md` with a word replaced (1,228 tokens) | **115.8** | **99.2** | **63.7** | **65.0** |
+| Cold read of 38,862 tokens | **1,012** | **807** | **795** | 929 (not cold, see below) |
+| Writing right after that read | 61.5 | 57.4 | 49.2 | 48.5 |
+| New messages on a running conversation: 2,029 / 3,586 / 5,259 / 7,142 / 11,081 / 14,212 / 20,243 tokens | 729 / 854 / 900 / 842 / 1,000 / 927 / 961 | 628 / 741 / 795 / 736 / 898 / 825 / 862 | 537 / 716 / 767 / 722 / 877 / 779 / 840 | 605 / 808 / 856 / 807 / 969 / 869 / 930 |
+| Picture (96 x 96 PNG, encoder on the CPU): time to the answer; writing after it (sampled) | 5.1 s; 52.9 | off | 6.5 s; 46.8 | 3.0 s; 47.0 |
+| Load, until the server reports loaded | 308 s | 244 s | 209 s | 201 s |
 
 - **This release's sources with Edge0** (`f6088fde`), with `FNX_LATENT` unset, against our UD-Q4_K_XL production engine
   (`c213636c`) on the UD-Q4_K_XL 512k profile at `FNX_ROUTE_PRIOR=0`, in a test window on 15 Nov (round `izdaja1`): the
   same first-token logits in 18 of 18 requests (KL 0) and the same speeds (fresh 52.5 against 51.0, edits 61.9 / 63.7
   against 62.0 / 64.0 tok/s). The IQ3_S file could not be compared that day (its first shard was not on our server).
-- **The same bits as our production.** Our IQ3_S production engine (`bf9c7f1f`) with the same profile gave the same
+- **The same bits as our production.** On 13 Nov the engine that this repository's `build.sh` then built on our server
+  (`f85a4aba`, 64-row jobs) ran the IQ3_S columns without pictures: fresh 66.6, edits 111.0 / 116.0, a cold read 954,
+  medium reads 700 / 815 / 853 / 803 / 941 / 876 / 904; in the 64 GB mode 63.3, 93.6 / 101.9, 768 and 613 / 717 / 759 /
+  710 / 850 / 783 / 817. Our IQ3_S production engine of then (`bf9c7f1f`) with the same profile gave the same
   first-token logits in 27 of 27 requests and the same speeds (66.9, 111.0 / 116.0, 953). The 64 GB mode gave the IQ3_S
   profile's logits in 27 of 27 (for that comparison with the same YaRN setting as the 512k profile; speed does not depend
-  on it). In the morning window this build with the UD-Q4_K_XL profile of then and our production engine for it
+  on it). The IQ3_S 512k run of 17 Nov above gave 13 Nov's logits bit for bit in 27 of 27 requests; the 64 GB run of
+  17 Nov was not compared again. Our IQ3_S production engine since 17 Nov (`36409ddc`: `bf9c7f1f`'s sources with 96-row
+  jobs) gave `bf9c7f1f`'s logits in 27 of 27 requests (KL 0; round `n17s1` in "Our rounds"). The picture's first answer
+  in the 17 Nov run (5.1 s) was that morning's first with pictures on this file; in our rounds it takes 2.6-2.7 s.
+  In 13 Nov's morning window that build with the UD-Q4_K_XL profile of then and our production engine for it
   (`c213636c`) gave the same logits in 29 of 29 requests, the picture's included. This folder's sources since then
   (`40ef6d53`, `c213636c` plus `FNX_EXPERT_MASK`) with the switch unset gave our IQ3_S production engine's logits in 27 of
   27 requests (KL 0) and its speeds (our test chain: fresh 66.96 against 66.86, a 36k read 943.9 against 942.5).
@@ -113,6 +121,13 @@ Python edit), IQ3_S at `FNX_ROUTE_PRIOR=0`:
   131k → 281k 800 tok/s, 279k → 505k 725 tok/s. Later builds only made reading faster.
 - **With `FNX_ROUTE_PRIOR=0.15`** (our production setting, lossy) on the build of 11 Nov (`b1438fe1`, `split67`):
   fresh 68.3, edit py 113.1, md 117.5 tok/s, against 66.6, 105.3 and 111.5 at 0 in the same round.
+- **Prompt-path jobs of 96 rows** (since 17 Nov 2026; the table above is from 64-row builds). Round `n17s1`, the same
+  chain at `FNX_ROUTE_PRIOR=0`, our production engine of then (`bf9c7f1f`) against its sources with 96-row jobs
+  (`36409ddc`, our production engine since): the cold 36k read 954.8 → 1005.0 tok/s (+5.3 %), the reads on a running
+  conversation 660 / 810 / 840 / 806 / 950 / 901 / 923 → 669 / 839 / 867 / 830 / 995 / 940 / 965, writing the same
+  (fresh 67.3 and 67.1, edits 108.9 / 115.7 in both), the same first-token logits in 27 of 27 requests (KL 0). Kernel
+  mode 6, which UD-Q4_K_XL takes, read at 1003.1, so IQ3_S keeps `FNX_PF_JOBV=7`. At our production's
+  `FNX_ROUTE_PRIOR=0.15` (round `n17s2`) the read went 955.8 → 1004.8, with fresh writing at 69.6 and 70.2.
 - Two requests at once (`--batch 2`, an older build): about 32 tok/s each, 63 together, so no gain over one.
 
 ### The machine
@@ -153,10 +168,10 @@ memory and the page cache, after dropping the lookup table's file from the page 
   pinned experts and 13.6 GiB the load needs for a while), the rest page cache.
 - **Once loaded** the engine holds 45-46.5 GiB (43.4 GiB pinned, 1.5-3 GiB of its own); the page cache took about 3 GB of
   the lookup table by the end of the benchmark.
-- **Speed** against the 512k profile on 96 GB (table under "Our numbers"): fresh writing −5 %, edits −16 % and −12 %, a
-  cold 38k read −20 %, the reads on a running conversation −10 to −12 %, writing after a long read the same. The answers
-  are the same: first-token logits identical in 27 of 27 requests. The lookup table had been dropped from the page
-  cache before the run (as after a reboot), so these are figures of a cold start.
+- **Speed** against the 512k profile on 96 GB (table under "Our numbers"): fresh writing −4 %, edits −15 % and −14 %, a
+  cold 38k read −20 %, the reads on a running conversation −10 to −14 %, writing after a long read −7 %. The answers
+  are the same: first-token logits identical in 27 of 27 requests (compared on 13 Nov, on the 64-row build). The lookup
+  table had been dropped from the page cache before the run (as after a reboot), so these are figures of a cold start.
 - On a real 64 GB machine Linux sees about 62 GiB. Leave little else running: the load's 55.6 GiB must fit beside the
   system, and what is left is page cache for the lookup table.
 
@@ -183,16 +198,16 @@ block's scales apply. `setup.sh --model q4_k_xl` downloads it with ISTA-DASLab's
   distribution sits further from the BF16 model the draft now follows, the gain was about 1 %, so its profile keeps the
   2-bit file. `setup.sh` makes the file. The benchmark above ran with it; its twelve fresh prompts gained less than our
   round's (50.3 tok/s on 13 Nov with the 2-bit file, 50.9 now: fewer rounds, but longer ones).
-- **Prompt-path jobs of 96 rows and kernel mode 6** (`PF_JOB=96 bash build.sh`, `FNX_PF_JOBV=6`; since 16 Nov 2026). The
+- **Prompt-path jobs of 96 rows and kernel mode 6** (`build.sh`'s default, `FNX_PF_JOBV=6`; since 16 Nov 2026). The
   P100 job kernels work on two tiles of 48 rows, so a 96-row job fills them and a 64-row one leaves a third empty. A 36k
   read in our test chain, the lookup table in the page cache (round `n16p1`, `FNX_ROUTE_PRIOR=0`): 736.0 tok/s with 64
   rows and mode 7 (our production until then), 864.3 with 96 rows, 976.4 with 96 rows and mode 6 (+32.7 %); medium reads
   +7-20 %, writing unchanged, the same first-token logits in 27 of 27 requests (KL 0). The benchmark's long read is the
   first after a load and waits for the disk, so it shows less (765 → 795); its medium reads from 3.6k tokens gained 5-8 %
-  at 512k and 7-9 % at 256k. The profiles' mode 6 on the default 64-row build (our production engine of 13 Nov, the 512k
-  profile): a cold read 761 and medium reads 545 / 699 / 749 / 702 / 841 / 745 / 808, between 13 Nov's and the 96-row
-  build's, the same logits in 29 of 29 requests. IQ3_S and Edge0-145B have not been measured at 96 rows; their profiles
-  keep mode 7 and the default build.
+  at 512k and 7-9 % at 256k. The profiles' mode 6 on a 64-row build (`PF_JOB=64`; our production engine of 13 Nov, the
+  512k profile): a cold read 761 and medium reads 545 / 699 / 749 / 702 / 841 / 745 / 808, between 13 Nov's and the
+  96-row build's, the same logits in 29 of 29 requests. The other two models gain less from 96 rows (17 Nov, the same
+  36k read): IQ3_S 5.3 % and keeps mode 7 (see "Our rounds"), Edge0-145B 3.2 % with mode 6 (see "Edge0-145B").
 - **What the RAM copies are for.** Of the 72.5 GiB of experts 52.5 GiB live only in RAM; the cards hold the rest. Those
   keep a RAM copy when the prompt path (its staging buffers) or the K/V pool (at 524,288, up to 7.6 GiB a card) may
   borrow their slots, and when they are dynamic: the cards' expert cache then follows the work. With 5.2 GiB fixed on the
@@ -207,7 +222,7 @@ block's scales apply. `setup.sh --model q4_k_xl` downloads it with ISTA-DASLab's
   100 different experts a layer and wait for the PCIe copies (an edit's round 151 ms against IQ3_S's 99). Shorter lookup
   drafts (`--lookup` 5, 7, 10), NUMA placement of the RAM copies and half-size staging buffers did not help. Those
   reads were on the 64-row build with mode 7; with 96 rows and mode 6 the chain's 36k read at `FNX_ROUTE_PRIOR=0` is 976
-  tok/s, against IQ3_S's 943 on its 64-row build.
+  tok/s, against IQ3_S's 1,005 with 96 rows (955 with 64).
 - **Deep contexts** (round `q4k4`, 512k): reads to 134k / 284k / 501k tokens ran at 809 / 765 / 737 tok/s and writing
   there at 49.3 / 48.0 / 38.4 tok/s, close to IQ3_S's (835 / 800 / 725, writing about 53 / 50 / 37).
 - **Pictures** work with the same projector; the encoder reads the vocabulary from the first part.
@@ -287,26 +302,35 @@ shard. The engine maps Edge0's files as they are (`FNX_LATENT`); nothing is conv
 `profile/flash-next-edge0-512k.template.json` (524,288 positions with YaRN x2, as the IQ3_S profile);
 [docs/SWITCHES.md](docs/SWITCHES.md#the-edge0-145b-profile) lists what differs.
 
-**Speed,** tok/s. The first column is `bench/bench.py` as in "Our numbers" (15 Nov 2026 in a test window, 07:12-07:21,
-a freshly loaded engine, with the profile `setup.sh` writes, started by `run.sh`); the others are our own test chain
-(see "Our rounds"), the same day. All at `FNX_ROUTE_PRIOR=0`:
+**Speed,** tok/s. The first column is `bench/bench.py` as in "Our numbers" (17 Nov 2026 in a test window, 07:16-07:25,
+a freshly loaded engine, the profile written by `profile/fill_profile.py`), on this folder's sources built with
+prompt-path jobs of 96 rows (`e56c3f60`; see "Build"), our Edge0 production engine since that day. The others are our own
+test chain (see "Our rounds"), round `n17e2` of the same morning: that engine, and our production until then (`f6088fde`,
+64 rows, `FNX_PF_JOBV=7`). All at `FNX_ROUTE_PRIOR=0`:
 
-| Test | bench.py | Round `edge0s` | Round `edge0u` |
+| Test | bench.py | Round `n17e2`: 96 rows, mode 6 | Round `n17e2`: 64 rows, mode 7 |
 |---|---:|---:|---:|
-| Fresh writing: 12 new prompts, 300 tokens each | **55.1** | 54.86 | 54.94 |
-| Edit, Python (the benchmark's file; in our rounds our 4.6 KB file, 1,388 tokens) | **96.6** | 94.5 | 94.4 |
-| Edit, Markdown (1,228 tokens) | **99.1** | 98.4 | 98.9 |
-| Cold read (bench.py 38,862 tokens, our rounds 36,424) | **669** | 657.8 | 660.6 |
-| Writing right after that read | 57.3 | 49.1 | 49.0 |
-| New messages on a running conversation (bench.py 2,029-20,243 tokens, our rounds 1,719-20,787) | 519 / 592 / 615 / 587 / 666 / 627 / 650 | 478-649 | 482-649 |
-| Picture (96 x 96 PNG): time to the answer; writing after it | "Rdeča in modra", 5.1 s; 46.3 | "Rdeča in modra", 1.9 s; 42.0 (round `edge0v`) | |
-| Load, until the server reports loaded | 210 s | 208 s | 208 s |
+| Fresh writing: 12 new prompts, 300 tokens each | **55.0** | 55.15 | 54.81 |
+| Edit, Python (the benchmark's file; in our rounds our 4.6 KB file, 1,388 tokens) | **96.6** | 94.5 | 94.5 |
+| Edit, Markdown (1,228 tokens) | **98.9** | 98.9 | 98.5 |
+| Cold read (bench.py 38,862 tokens, our rounds 36,424) | **691** | 689.3 | 668.1 |
+| Writing right after that read | 57.1 | 49.7 | 49.0 |
+| New messages on a running conversation (bench.py 2,029-20,243 tokens, our rounds 1,719-20,787) | 535 / 612 / 637 / 607 / 686 / 647 / 669 | 497 / 608 / 616 / 603 / 684 / 659 / 670 | 481 / 588 / 601 / 586 / 664 / 639 / 650 |
+| Picture (96 x 96 PNG): time to the answer; writing after it | "Rdeča in modra", 5.1 s; 43.3 | "Rdeča in modra", 1.9 s; 42.0 (round `edge0v`, 15 Nov) | |
+| Load, until the server reports loaded | 215 s | 220 s | 225 s (round `n17e3`) |
+
+- **Prompt-path jobs of 96 rows and kernel mode 6** (`build.sh`'s default, `FNX_PF_JOBV=6`; since 17 Nov 2026), as
+  for UD-Q4_K_XL. In round `n17e2` the 36k read went from 668.1 tok/s (64 rows, mode 7) to 686.1 (96 rows) and 689.3
+  (mode 6; +3.2 %), medium reads +2.5-3.4 %, writing unchanged, the same first-token logits in 27 of 27 requests (KL 0).
+  It gains less than UD-Q4_K_XL: its prompt path also computes D and U, which the size of the jobs does not touch. The benchmark on
+  15 Nov, on the 64-row build with mode 7: fresh 55.1, edits 96.6 / 99.1, a cold read 669, medium reads 519 / 592 / 615 /
+  587 / 666 / 627 / 650, the picture 5.1 s; 46.3, load 210 s.
 
 - **Experts on the cards** are what counts, as for UD-Q4_K_XL. With D and U whole on both cards and
   `FNX_EXPERT_RAM_GIB=36`, 4,603 experts were on the cards: fresh 44.9, edits 56.3 / 56.5, a 36k read 575. At 31.5,
   7,099: 50.7, 81.0 / 83.9 and 577. With D and U split by group across the cards (`FNX_LAT_SPLIT=1`, 1.74 GiB a card
   less) and 28, 9,041: 54.9, 94.5 / 98.4 and 658. Below 28 the engine moves experts back to RAM itself (at 26.5: 9,017).
-- **Why it is slower than IQ3_S** (in the benchmark 17 % in fresh writing, 13 % in edits, 30 % in reading): D and U are
+- **Why it is slower than IQ3_S** (in the benchmark 17 % in fresh writing, 13-15 % in edits, 32 % in reading): D and U are
   dense, 73 million multiply-adds a token and layer, more than its ten experts. Each card computes half of them and reads half of their 3.7 GB at every
   step, and a layer has two exchanges more than Flash-Next's.
 - **What the engine adds** (`history/patches/edge0_patch*.py`): an NVFP4 type in the P100 kernels for writing and for
@@ -360,7 +384,7 @@ bash run.sh /data/flash-next           # the server on http://127.0.0.1:8080/v1,
 ```
 
 - `bash setup.sh /data/flash-next --ram 64` writes the 64 GB mode's profile; `bash setup.sh /data/flash-next-q4 --model q4_k_xl`
-  downloads and sets up Unsloth's UD-Q4_K_XL instead of the IQ3_S file (112 GB; build its engine with `PF_JOB=96 bash build.sh`), `bash setup.sh /data/edge0 --model edge0`
+  downloads and sets up Unsloth's UD-Q4_K_XL instead of the IQ3_S file (112 GB), `bash setup.sh /data/edge0 --model edge0`
   Edge0-145B (87 GB, of which the IQ3_S's second shard is 28.8 GB; `--models` the IQ3_S's folder shares it). One `DATA` folder holds one profile, so
   give each model its own folder, or `--models` the same model folder to share the downloads. `--coder` (with either
   file) writes a Coder profile (see "Coder").
@@ -388,7 +412,7 @@ PREP=$DATA/prep                        # the files made from them (tokenizer, MT
 
 ```bash
 cd "$P100" && bash build.sh            # nvcc from PATH; or: CUDA=/usr/local/cuda-12.4 JOBS=8 bash build.sh
-cd "$P100" && PF_JOB=96 bash build.sh  # for UD-Q4_K_XL: prompt-path jobs of 96 rows instead of 64
+cd "$P100" && PF_JOB=64 bash build.sh  # the default until 17 Nov 2026: prompt-path jobs of 64 rows (the same bits, long prompts read slower)
 ```
 
 `build.sh`:
@@ -397,9 +421,11 @@ cd "$P100" && PF_JOB=96 bash build.sh  # for UD-Q4_K_XL: prompt-path jobs of 96 
    `third_party/llama.cpp` (only its ggml-cuda headers are used; ggml itself is not built);
 2. regenerates `engine/src/iq3s_x.cuh` from that checkout and stops if it differs from the shipped one;
 3. configures and builds `build/split/strata-split-2`, with production's settings: Release, `sm_60`, 2 cards,
-   `-DSTRATA_SPLIT_PF_JOB=64`, `--use_fast_math --expt-relaxed-constexpr`, and `engine/p100_compat.h` force-included in
-   every CUDA source. `PF_JOB=96` sets `-DSTRATA_SPLIT_PF_JOB=96`, as in our UD-Q4_K_XL production since 16 Nov 2026:
-   the same bits, long prompts read faster (see "Unsloth's UD-Q4_K_XL"). Either binary runs every model;
+   `-DSTRATA_SPLIT_PF_JOB=96`, `--use_fast_math --expt-relaxed-constexpr`, and `engine/p100_compat.h` force-included in
+   every CUDA source. Prompt-path jobs of 96 rows are our production for UD-Q4_K_XL since 16 Nov 2026 and for IQ3_S and
+   Edge0-145B since 17 Nov: against 64 rows the same bits, and a 36k read 32.7 % (with kernel mode 6), 5.3 % and 3.2 %
+   faster. `PF_JOB=64` sets `-DSTRATA_SPLIT_PF_JOB=64`, the earlier build (the CMake option's own default). Either
+   binary runs every model;
 4. refuses a binary that can call a CUDA peer-access function, and warns if `ldd` cannot find the CUDA libraries.
 
 It stops early, with a message, if the toolkit is not CUDA 12 or the host compiler is newer than that toolkit accepts
@@ -564,10 +590,11 @@ as in our runs. The texts are read from the Strata v0.2.9 checkout, so every run
 - **Start the engine fresh and run the benchmark once.** The expert cache learns what it reads, so a second run on the same
   engine is faster.
 - Ours are one run each. Our rounds differed by up to 2 % between runs of the same build (long read 903-918), more right
-  after a change of settings. Our IQ3_S picture numbers are from our rounds (pictures were off in the release run), and
-  UD-Q4_K_XL's are from the run of 16 Nov on a 96-row build (`PF_JOB=96 bash build.sh`), with the profiles as they are now
-  (`--ours q4_k_xl` is the 512k one, `q4_k_xl_256k` the 256k one; its long read was not cold). On the default 64-row build
-  UD-Q4_K_XL's reads are slower (see "Unsloth's UD-Q4_K_XL").
+  after a change of settings. All of ours ran on the 96-row build (`build.sh`'s default), with the profiles as they are
+  now: IQ3_S's and Edge0-145B's on 17 Nov, UD-Q4_K_XL's on 16 Nov (`--ours q4_k_xl` is the 512k one, `q4_k_xl_256k` the
+  256k one; its long read was not cold). The IQ3_S picture's first answer (5.1 s) came in that morning's first run with
+  pictures on this file; in our rounds it takes 2.6-2.7 s. On a 64-row build (`PF_JOB=64`) long prompts read slower,
+  UD-Q4_K_XL's most (see "Unsloth's UD-Q4_K_XL").
 - Keep `FNX_PROF=0` and nothing else on the cards. Our cards ran at 1,328 MHz under load; the clock follows recent load,
   so short tests can differ by 4-5 %.
 
@@ -682,12 +709,13 @@ python3 tune/tune.py --data /data/flash-next --screen           # 2-3 hours, one
   writer and the benchmark ran there as they are. The Coder change came after that: its sources (`maska_patch.py`
   applied to the ones `build.sh` built) were built in the build directory `c213636c` came from, not yet with `build.sh`. `setup.sh` and `run.sh` were run against stand-ins (a fake Strata
   checkout and tools, small model files), not yet against the real downloads.
-- **The 96-row build** (`PF_JOB=96`, for UD-Q4_K_XL): on 16 Nov `PF_JOB=96 JOBS=12 bash build.sh` built this folder's
+- **The 96-row build** (`build.sh`'s default since 17 Nov): on 16 Nov `PF_JOB=96 JOBS=12 bash build.sh` built this folder's
   engine on our server in 17 minutes (llama.cpp from our Strata v0.2.9 build tree at the pinned commit). The file
   (`a1e9ac07`) is not the same as `e56c3f60`, which came from another build directory, but on the 512k profile it gave
   `e56c3f60`'s first-token logits in 29 of 29 requests of the benchmark and its speeds (fresh 50.4, edits 62.7 / 64.0, a
-  cold read 794, medium reads 536 / 721 / 770 / 721 / 876 / 780 / 840, the picture 3.1 s; 44.3). IQ3_S and Edge0-145B
-  have not been measured on a 96-row engine.
+  cold read 794, medium reads 536 / 721 / 770 / 721 / 876 / 780 / 840, the picture 3.1 s; 44.3). It was run with UD-Q4_K_XL
+  only; IQ3_S's and Edge0-145B's numbers are `e56c3f60`'s. `build.sh` has not been run again since 96 became its default
+  (the same option, now without `PF_JOB=96`).
 
 ## Credits and license
 

@@ -9,7 +9,9 @@ With `FNX_EXPERT_MASK` and `FNX_LATENT` unset it gives our production engines' b
 "Edge0-145B"). Since 16 Nov 2026 our UD-Q4_K_XL production engine is `6ccc87af7e9baf50…`: `c213636ce3de2182…`'s sources
 built with `-DSTRATA_SPLIT_PF_JOB=96` (no source file differs; README, "Build"). This folder's sources built with that
 option (`e56c3f604d2eb5a7…`) gave its first-token logits in 29 of 29 requests of the benchmark, and `PF_JOB=96 bash build.sh`'s
-own build on our server (`a1e9ac07946cee2f…`) gave the same ones.
+own build on our server (`a1e9ac07946cee2f…`) gave the same ones. Since 17 Nov 2026 `build.sh` builds with that option by
+default, `e56c3f604d2eb5a7…` is our Edge0 production engine, and our IQ3_S production engine is `36409ddc524cd93e…`:
+`bf9c7f1f22b0af4a…`'s sources built with that option (the same first-token logits in 27 of 27 requests of our test chain).
 
 | File | Origin | SHA-256 |
 |---|---|---|
