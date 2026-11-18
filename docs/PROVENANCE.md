@@ -6,9 +6,9 @@ SHA-256 values are those of the sources of our Edge0 production engine
 (`strata-split-2`, binary SHA-256 `f6088fdee182bbe6…`, 15 Nov 2026) with 18 Nov's patch applied (see the end of this
 paragraph). That engine's sources are our Coder engine (`40ef6d531143d73d…`: our UD-Q4_K_XL production engine of 13 Nov,
 `c213636ce3de2182…`, with `history/patches/maska_patch.py` applied) with the five `history/patches/edge0_patch*.py` applied.
-With `FNX_EXPERT_MASK` and `FNX_LATENT` unset it gives our production engines' bits (see README, "Our numbers", "Coder" and
+With `FNX_EXPERT_MASK` and `FNX_LATENT` unset it gives our production engines' bits (see GUIDE.md, "Our numbers", "Coder" and
 "Edge0-145B"). Since 16 Nov 2026 our UD-Q4_K_XL production engine is `6ccc87af7e9baf50…`: `c213636ce3de2182…`'s sources
-built with `-DSTRATA_SPLIT_PF_JOB=96` (no source file differs; README, "Build"). This folder's sources of then built with that
+built with `-DSTRATA_SPLIT_PF_JOB=96` (no source file differs; GUIDE.md, "Build"). This folder's sources of then built with that
 option (`e56c3f604d2eb5a7…`) gave its first-token logits in 29 of 29 requests of the benchmark, and `PF_JOB=96 bash build.sh`'s
 own build on our server (`a1e9ac07946cee2f…`) gave the same ones. Since 17 Nov 2026 `build.sh` builds with that option by
 default, `e56c3f604d2eb5a7…` is our Edge0 production engine, and our IQ3_S production engine is `36409ddc524cd93e…`:
@@ -18,7 +18,7 @@ Since 18 Nov 2026 `src/engine.cu`, `src/kernels.cu`, `src/kernels.hpp` and `src/
 sources as they are here were built with that option on 17 Nov (`a77172354b195150…`): that engine is in none of our
 profiles and has not run in a round or in the benchmark, and `build.sh` has not been run on them. Our UD-Q4_K_XL
 production engine since 18 Nov is `f28228d145e981b5…`: `6ccc87af7e9baf50…`'s sources with the same patch, built with that
-option (README, "Unsloth's UD-Q4_K_XL" and "Known limitations").
+option (GUIDE.md, "Unsloth's UD-Q4_K_XL" and "Known limitations").
 
 | File | Origin | SHA-256 |
 |---|---|---|
