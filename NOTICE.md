@@ -10,7 +10,7 @@
 | `engine/data/coder_mask.txt` | the experts ISTA-DASLab's Coder release keeps, from its allocation list (Hugging Face `ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF`), rewritten by our `scripts/coder_mask.py` | Apache-2.0, [third_party/ista-daslab/](third_party/ista-daslab/) |
 | `engine/p100_compat.h`, `engine/src/p100_*`, the changes to the other files | ours | MIT (ours) |
 | `CMakeLists.txt`, `build.sh`, `setup.sh`, `run.sh`, `scripts/`, `profile/`, `bench/`, `docs/`, `history/` | ours; `bench/bench.py` reads its texts from a Strata checkout at run time | MIT (ours) |
-| `engine-32g/` | ours: the 32 GB mode's two patches and `ssd.hpp`, which `build.sh --32g` applies to a copy of `engine/` | MIT (ours) |
+| `engine-32g/` | ours: the low-RAM engine's four patches and `ssd.hpp` (the 32 GB and 64 GB modes), which `build.sh --32g` applies to a copy of `engine/` | MIT (ours) |
 
 [docs/PROVENANCE.md](docs/PROVENANCE.md) says for every file in `engine/` whether it is Strata's unchanged, Strata's
 modified, or new, with its SHA-256. [docs/upstream-v0.2.10.diff](docs/upstream-v0.2.10.diff) is every change against

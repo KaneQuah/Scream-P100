@@ -21,15 +21,19 @@
 #   bash setup.sh /data/flash-next-coder --models /data/flash-next/models --coder   # the Coder's experts only (README, "Coder")
 #   bash setup.sh /data/flash-next-q4-fast --models /data/flash-next-q4/models --model q4_k_xl --fast   # the fast UD-Q4_K_XL, lossy
 #   bash setup.sh /data/flash-next-q4-32 --models /data/flash-next-q4/models --model q4_k_xl --fast --ram 32   # the same with 32 GB of RAM
+#   bash setup.sh /data/flash-next-q4-64 --models /data/flash-next-q4/models --model q4_k_xl --ram 64   # the exact UD-Q4_K_XL, 64 GB
 #
 # Options:
-#   --model M        iq3_s (default): ISTA-DASLab's GSQ-RCO IQ3_S; q4_k_xl: Unsloth's UD-Q4_K_XL (512k, needs 96 GB of RAM);
-#                    edge0: Edge0's Edge0-145B-NVFP4 (512k, needs 96 GB of RAM)
+#   --model M        iq3_s (default): ISTA-DASLab's GSQ-RCO IQ3_S; q4_k_xl: Unsloth's UD-Q4_K_XL (512k, needs 96 GB of RAM, or
+#                    64 GB with --ram 64); edge0: Edge0's Edge0-145B-NVFP4 (512k, needs 96 GB of RAM)
 #   --models DIR     the model files somewhere else (for example already downloaded); missing ones are downloaded there
 #   --strata DIR     an existing Strata checkout at v0.2.9 instead of DATA/strata-v0.2.9
 #   --no-pictures    no projector download, no encoder build, a profile without pictures
 #   --route-prior X  FNX_ROUTE_PRIOR in the profile: 0 (default) is exact; 0.15 is our production setting, faster, lossy
-#   --ram 64         the 64 GB mode in the profile (262,144 positions, the lookup table from the disk; IQ3_S only); default 96
+#   --ram 64         the 64 GB mode in the profile; default 96. IQ3_S: 262,144 positions, the lookup table from the disk.
+#                    UD-Q4_K_XL (exact, not with --fast; docs/GUIDE.md, "UD-Q4_K_XL on 64 GB"): 524,288 positions, no expert
+#                    pinned in RAM, the experts the cards do not hold in a RAM tier of 25 GiB a card and in the model's files
+#                    (keep them on an SSD); the low-RAM engine: run 'bash build.sh --32g' first (the profile names build-32g/)
 #   --ram 32         the 32 GB mode (with --fast only; docs/GUIDE.md, "32 GB of RAM"): no expert pinned in RAM, the experts the
 #                    cards do not hold read from the model's files into a RAM tier (FNX_SSD_EXPERTS); wants the files on an SSD.
 #                    It has an engine of its own: run 'bash build.sh --32g' first (the profile names build-32g/)
@@ -92,7 +96,8 @@ while [ $# -gt 0 ]; do
     *) die "unknown option $1" ;;
   esac
 done
-[ "$RAM" != 64 ] || [ "$MODEL" = iq3_s ] || die "--ram 64: only with the IQ3_S file (UD-Q4_K_XL's and Edge0's profiles need 96 GB; for 32 GB see --ram 32)"
+[ "$RAM" != 64 ] || [ "$MODEL" != edge0 ] || die "--ram 64: not with Edge0 (its profile needs 96 GB); the IQ3_S file or the UD-Q4_K_XL"
+[ "$RAM" != 64 ] || [ "$FAST" = 0 ] || die "--ram 64: the exact UD-Q4_K_XL only; the fast profile below 96 GB is --ram 32 (it runs on 64 GB too)"
 [ "$RAM" != 32 ] || [ "$FAST" = 1 ] || die "--ram 32: only with --model q4_k_xl --fast (docs/GUIDE.md, \"32 GB of RAM\")"
 [ "$CODER" = 0 ] || [ "$MODEL" != edge0 ] || die "--coder: not with --model edge0 (the Coder's list names Flash-Next's experts, not Edge0's)"
 [ "$FAST" = 0 ] || [ "$MODEL" = q4_k_xl ] || die "--fast: only with --model q4_k_xl (the settings were measured on UD-Q4_K_XL only)"
@@ -104,7 +109,9 @@ STRATA=$(abspath "${STRATA:-$DATA/strata-v0.2.9}")
 PREP=$DATA/prep
 EXE=$HERE/build/split/strata-split-2
 BUILD_CMD="bash build.sh"
-if [ "$RAM" = 32 ]; then EXE=$HERE/build-32g/split/strata-split-2; BUILD_CMD="bash build.sh --32g"; fi   # the 32 GB mode's own engine
+if [ "$RAM" = 32 ] || { [ "$RAM" = 64 ] && [ "$MODEL" = q4_k_xl ]; }; then   # the low-RAM engine
+  EXE=$HERE/build-32g/split/strata-split-2; BUILD_CMD="bash build.sh --32g"
+fi
 GG=$HERE/third_party/llama.cpp
 declare -A URL=([$MMPROJ]=$ISTA/$MMPROJ)
 for f in "${IQ3_S[@]}"; do URL[$f]=$ISTA/$f; done
@@ -144,7 +151,9 @@ else
   say "WARNING: no nvidia-smi; the profile names cards 0,1"
 fi
 mem_gib=$(awk '/^MemTotal:/ {print int($2 / 1048576)}' /proc/meminfo)
-if [ "$RAM" = 96 ] && [ "$MODEL" != iq3_s ] && [ "$mem_gib" -lt 88 ]; then
+if [ "$RAM" = 96 ] && [ "$MODEL" = q4_k_xl ] && [ "$mem_gib" -lt 88 ]; then
+  say "WARNING: $mem_gib GiB of RAM; this profile needs 96 GB; with 64 GB use --ram 64 (with --fast: --ram 32)"
+elif [ "$RAM" = 96 ] && [ "$MODEL" != iq3_s ] && [ "$mem_gib" -lt 88 ]; then
   say "WARNING: $mem_gib GiB of RAM; this model needs 96 GB; with 64 GB use the IQ3_S file and --ram 64"
 elif [ "$RAM" = 96 ] && [ "$mem_gib" -lt 88 ]; then
   say "WARNING: $mem_gib GiB of RAM; this profile needs 96 GB (about 85 GiB once loaded, more while loading); with 64 GB use --ram 64"

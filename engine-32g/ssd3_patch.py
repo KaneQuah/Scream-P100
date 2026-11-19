@@ -7,6 +7,14 @@
 #   - it is filled at the load with the hottest experts out of a slot (p100_dma_ssd_warm), in classes by an expert's size on the card
 #   - the prompt slots' experts go down into it before a read lends their slots (Engine::pf_tails)
 #   - a read stages from it what it holds (p100_dma_ssd_find); only the rest goes through the ring from the file
+# v3d (13:30): a list's down copies wait for the other copy stream's last list on the card (an event), not the copier for that stream.
+# v3e (14:00, for the exact UD-Q4_K_XL on 64 GB: q4h32i at 24 GiB a card read ~450 experts a request from the disk in decode, and the
+# first pass after the load evicted the hottest experts of the tier):
+#   - the tier is sized at the load's warm fill by need: each class its experts out of a slot and 64 more, all scaled down alike when
+#     FNX_SSD_RAM_GIB does not hold that (a cap: what is not needed is not taken); no class too small for a tier any more
+#   - CLOCK gives up after two sweeps (every slot protected): the evicted expert is not kept, a read goes through the bounce buffer
+#   - the warm fill puts the coldest into the first slots, unmarked, so CLOCK (from slot 0) lets them go first; a prompt pass's reads
+#     from the tier mark nothing
 # Run in the engine's source folder after ssd_patch.py. Off (FNX_SSD_EXPERTS or FNX_SSD_RAM_GIB unset): ExpertCache::prev stays null and
 # every changed line does what it did.
 import sys
@@ -97,18 +105,21 @@ rep("p100_dma.cuh",
     "    char* sv[2][DMA_MAX] = {};           // where list w's entry k's evicted expert comes down to (null: nothing to keep)\n"
     "    cudaStream_t csd[2] = {};            // list w's down copies (the copy engine of that direction), an event each (evd)\n"
     "    cudaEvent_t evd[2][DMA_MAX] = {};\n"
+    "    cudaEvent_t evl[2] = {};             // each stream's last list's copies (cs, cs2): a list's down copies wait for the other's on the card\n"
     "    unsigned long long sc_kept = 0;      // evicted experts kept (down, or there already) since the last report\n"
     "};\n")
 between("p100_dma.cuh",
         "// ssd_patch.py, FNX_SSD_RAM_GIB=G: a page-locked cache of G GiB a card of the experts its copier read, CLOCK.",
         "// FNX_SSD_COPIERS=n (default 4; 0: none)",
-        r'''// ssd3_patch.py, FNX_SSD_RAM_GIB=G (with FNX_SSD_EXPERTS): the card's RAM tier, G GiB of page-locked slots in classes by an expert's bytes
-// on the card (the pools' sizes; a class's share by its layers' bytes), CLOCK in each. Exclusive with the card's slots: an expert copied up
-// from it is let go once its copy has landed (at its stream's next list), and the expert a list's entry evicts from a card slot
-// (DmaBox::prev) comes down into it before the slot is written (sv). Filled at the load with the hottest experts out of a slot
-// (p100_dma_ssd_warm), given the prompt slots' experts before a read lends them (p100_dma_ssd_save), read by the prompt path
-// (p100_dma_ssd_find). A slot is taken from no list a copy may still read: not the current list's (box or box2) nor the other stream's
-// last (each stream is synced before its list). Without it (G 0): a bounce buffer per box, nothing kept.
+        r'''// ssd3_patch.py, FNX_SSD_RAM_GIB=G (with FNX_SSD_EXPERTS): the card's RAM tier, up to G GiB of page-locked slots in classes by an
+// expert's bytes on the card (the pools' sizes), CLOCK in each. Sized at the load's warm fill by need: each class its experts out of a slot
+// and SSD_SPARE_NEED more, all scaled down alike when G GiB do not hold that (made first by a list instead: a class's share by its layers'
+// bytes). Exclusive with the card's slots: an expert copied up from it is let go once its copy has landed (at its stream's next list),
+// and the expert a list's entry evicts from a card slot (DmaBox::prev) comes down into it before the slot is written (sv). Filled at the
+// load with the hottest experts out of a slot (p100_dma_ssd_warm), given the prompt slots' experts before a read lends them
+// (p100_dma_ssd_save), read by the prompt path (p100_dma_ssd_find). A slot is taken from no list a copy may still read: not the current
+// list's (box or box2) nor the other stream's last (each stream is synced before its list); when CLOCK finds none in two sweeps, the
+// evicted expert is not kept and a read goes through the bounce buffer. Without it (G 0): a bounce buffer per box, nothing kept.
 struct SsdClass {
     size_t per = 0;
     char* mem = nullptr;
@@ -126,12 +137,14 @@ struct SsdCache {
     unsigned seq[2] = {1, 1};     // the current or last list number of box / box2
     std::vector<int> rel[2];      // experts copied up by stream w's last list: let go at its next
 };
-constexpr int SSD_SPARE = 2 * DMA_MAX + 64;   // a class's slots beyond what two lists can protect
-SsdCache* dma_ssd_cache(DmaCard* c) {
+constexpr int SSD_SPARE = 2 * DMA_MAX + 64;   // a class's slots beyond what two lists can protect (the shares by the layers' bytes)
+constexpr int SSD_SPARE_NEED = 64;            // sized by need: a class's slots beyond its experts out of a slot
+// out: the experts out of a slot (the warm fill's), to size the tier by need; null: the shares by the layers' bytes
+SsdCache* dma_ssd_cache(DmaCard* c, const std::vector<int>* out = nullptr) {
     std::lock_guard<std::mutex> lk(c->sc_mu);
     if (c->sc_tried) return c->sc;
     c->sc_tried = true;
-    const double gib = ssd_ram_gib();
+    const double gib = ssd_ram_gib(), cap = gib * 1073741824.0;
     const std::vector<SsdLayer>& L = g_ssd_layers[c->dev & (SSD_DEVS - 1)];
     if (gib <= 0 || L.size() != (size_t) NL) return nullptr;
     auto* sc = new SsdCache;
@@ -149,27 +162,45 @@ SsdCache* dma_ssd_cache(DmaCard* c) {
         sc->cls_of[(size_t) l] = (int) k;
         wt[k] += (double) per;
     }
-    double tw = 0;
-    for (double x : wt) tw += x;
-    // a class whose share holds fewer than SSD_SPARE + 64 slots (a layer or two of another size: their experts sit on the cards
-    // anyway) has none, its share going to the others; its layers' lists take the bounce buffers
-    for (bool again = true; again;) {
-        again = false;
-        double live = 0;
-        for (size_t k = 0; k < sc->cls.size(); ++k) live += wt[k];
+    std::string how;
+    if (out) {   // by need: each class its experts out of a slot and SSD_SPARE_NEED more, scaled down alike when G GiB do not hold that
+        std::vector<double> need(sc->cls.size(), 0.0);
+        for (const int g : *out) need[(size_t) sc->cls_of[(size_t) (g / NEXP)]] += 1.0;
+        double fixed = 0, var = 0;
         for (size_t k = 0; k < sc->cls.size(); ++k)
-            if (wt[k] > 0 && gib * 1073741824.0 * wt[k] / live / (double) sc->cls[k].per < SSD_SPARE + 64) {
-                wt[k] = 0;
-                again = true;
+            if (need[k] > 0) {
+                fixed += SSD_SPARE_NEED * (double) sc->cls[k].per;
+                var += need[k] * (double) sc->cls[k].per;
             }
+        const double f = var > 0 ? std::min(1.0, std::max(0.0, (cap - fixed) / var)) : 0.0;
+        for (size_t k = 0; k < sc->cls.size(); ++k) sc->cls[k].n = need[k] > 0 && f > 0 ? (int) (f * need[k]) + SSD_SPARE_NEED : 0;
+        char t[96];
+        std::snprintf(t, sizeof t, "by need: %.1f %% of the %zu experts out of a slot", 100.0 * f, out->size());
+        how = t;
+    } else {
+        // a class whose share holds fewer than SSD_SPARE + 64 slots (a layer or two of another size: their experts sit on the cards
+        // anyway) has none, its share going to the others; its layers' lists take the bounce buffers
+        for (bool again = true; again;) {
+            again = false;
+            double live = 0;
+            for (size_t k = 0; k < sc->cls.size(); ++k) live += wt[k];
+            for (size_t k = 0; k < sc->cls.size(); ++k)
+                if (wt[k] > 0 && cap * wt[k] / live / (double) sc->cls[k].per < SSD_SPARE + 64) {
+                    wt[k] = 0;
+                    again = true;
+                }
+        }
+        double live = 0;
+        for (double x : wt) live += x;
+        for (size_t k = 0; k < sc->cls.size(); ++k) sc->cls[k].n = wt[k] > 0 && live > 0 ? (int) (cap * wt[k] / live / (double) sc->cls[k].per) : 0;
+        how = "by the layers' bytes";
     }
-    double live = 0;
-    for (double x : wt) live += x;
     std::string say;
-    bool ok = live > 0;
+    bool ok = false;
+    size_t bytes = 0;
+    for (const SsdClass& s : sc->cls) ok |= s.n > 0;
     for (size_t k = 0; k < sc->cls.size() && ok; ++k) {
         SsdClass& s = sc->cls[k];
-        s.n = wt[k] > 0 ? (int) (gib * 1073741824.0 * wt[k] / live / (double) s.per) : 0;
         if (s.n == 0) {
             say += (k ? ", " : "") + std::string("none of ") + std::to_string(s.per >> 10) + " KiB";
             continue;
@@ -184,18 +215,20 @@ SsdCache* dma_ssd_cache(DmaCard* c) {
         for (auto& u : s.used) u.assign((size_t) s.n, 0u);
         s.free.reserve((size_t) s.n);
         for (int v = s.n - 1; v >= 0; --v) s.free.push_back(v);
+        bytes += (size_t) s.n * s.per;
         say += (k ? ", " : "") + std::to_string(s.n) + " x " + std::to_string(s.per >> 10) + " KiB";
     }
     if (!ok) {
         for (SsdClass& s : sc->cls)
             if (s.mem) cudaFreeHost(s.mem);
         delete sc;
-        std::fprintf(stderr, "fnx ssd: device %d: no RAM tier of %.2f GiB (no page-locked RAM, or no class holds %d slots): bounce buffers only\n",
-                     c->dev, gib, SSD_SPARE + 64);
+        std::fprintf(stderr, "fnx ssd: device %d: no RAM tier of %.2f GiB (no page-locked RAM, or no class has slots): bounce buffers only\n",
+                     c->dev, gib);
         return nullptr;
     }
     sc->slot_of.assign((size_t) NL * NEXP, -1);
-    std::fprintf(stderr, "fnx ssd: device %d: a RAM tier of %.2f GiB page-locked (%s)\n", c->dev, gib, say.c_str());
+    std::fprintf(stderr, "fnx ssd: device %d: a RAM tier of %.2f GiB page-locked (at most %.2f), %s (%s)\n", c->dev, bytes / 1073741824.0, gib,
+                 how.c_str(), say.c_str());
     return c->sc = sc;
 }
 // (the callers hold sc->mu) whether g's class has slots
@@ -206,7 +239,7 @@ char* sc_at(SsdCache* sc, int g) {
     return s.mem + (size_t) sc->slot_of[(size_t) g] * s.per;
 }
 // a slot of g's class taken for g: an empty one while there are, else CLOCK (none a list may still read); w: the list (0 box, 1 box2)
-// that writes or reads it now, -1 none
+// that writes or reads it now, -1 none. Null when two sweeps find none (every slot protected: a small class)
 char* sc_take(SsdCache* sc, int w, int g) {
     SsdClass& s = sc->cls[(size_t) sc->cls_of[(size_t) (g / NEXP)]];
     while (!s.free.empty()) {
@@ -220,7 +253,7 @@ char* sc_take(SsdCache* sc, int w, int g) {
         if (w >= 0) s.used[w][(size_t) v] = sc->seq[w];
         return s.mem + (size_t) v * s.per;
     }
-    for (;;) {
+    for (int step = 0; step < 2 * s.n; ++step) {
         const int v = s.hand;
         s.hand = (s.hand + 1) % s.n;
         if (s.used[0][(size_t) v] == sc->seq[0] || s.used[1][(size_t) v] == sc->seq[1]) continue;
@@ -236,6 +269,7 @@ char* sc_take(SsdCache* sc, int w, int g) {
         if (w >= 0) s.used[w][(size_t) v] = sc->seq[w];
         return s.mem + (size_t) v * s.per;
     }
+    return nullptr;
 }
 // g, which is here, used now by list w (-1: by nobody now); a release still pending for it is dropped (it is wanted here again)
 char* sc_hit(SsdCache* sc, int w, int g) {
@@ -256,9 +290,25 @@ void sc_drop(SsdCache* sc, int g) {
     sc->slot_of[(size_t) g] = -1;
     s.free.push_back(v);
 }
+// list w's bounce buffer, n entries of gb + db bytes (stream w synced: no copy reads it)
+char* dma_ssd_bounce(DmaCard* c, int w, int n, size_t gb, size_t db) {
+    const size_t want = (size_t) n * (gb + db);
+    if (c->sb_cap[w] < want) {
+        if (c->sb[w]) cudaFreeHost(c->sb[w]);
+        c->sb[w] = nullptr;
+        c->sb_cap[w] = 0;
+        const size_t cap = std::max(want, (size_t) 32 * (gb + db));
+        if (cudaHostAlloc((void**) &c->sb[w], cap, cudaHostAllocPortable) != cudaSuccess) {
+            std::fprintf(stderr, "fnx ssd: the copier of device %d has no page-locked bounce buffer of %zu MiB\n", c->dev, cap >> 20);
+            std::abort();
+        }
+        c->sb_cap[w] = cap;
+    }
+    return c->sb[w];
+}
 // list w (0: box, 1: box2), once stream s's last copies have landed: each entry's evicted expert (prev) kept in the RAM tier (c->sv[w][k]:
-// where it comes down to, null when it is there already) and each tagged entry pointed at page-locked bytes, the tier's (a hit, or a slot it
-// is read into: c->pend[w][k]) or the bounce buffer w's without a tier
+// where it comes down to, null when it is there already or no slot is free) and each tagged entry pointed at page-locked bytes, the
+// tier's (a hit, or a slot it is read into: c->pend[w][k]) or the bounce buffer w's (no tier, or no slot)
 void dma_ssd_list(DmaCard* c, int w, DmaEnt* e, const int* prev, int n, size_t gb, size_t db, cudaStream_t s) {
     SsdCache* sc = ssd_ram_gib() > 0 ? dma_ssd_cache(c) : nullptr;
     int gl = -1;   // an expert of the list's layer (a list is one layer's: one class)
@@ -272,7 +322,6 @@ void dma_ssd_list(DmaCard* c, int w, DmaEnt* e, const int* prev, int n, size_t g
     }
     if (!any) return;
     cudaStreamSynchronize(s);
-    if (sc) cudaStreamSynchronize(w ? c->cs : c->cs2);   // a slot copied down may have been written up by the other stream's last list
     c->sb_said = false;
     if (sc) {
         std::lock_guard<std::mutex> lk(sc->mu);
@@ -280,10 +329,12 @@ void dma_ssd_list(DmaCard* c, int w, DmaEnt* e, const int* prev, int n, size_t g
         sc->rel[w].clear();
         ++sc->seq[w];
         for (int k = 0; k < n; ++k) {
-            if (const int o = prev[k]; o >= 0) {   // down before the slot is written, unless it is here already
-                if (sc->slot_of[(size_t) o] >= 0) sc_hit(sc, w, o);
-                else c->sv[w][k] = sc_take(sc, w, o);
-                ++c->sc_kept;
+            if (const int o = prev[k]; o >= 0) {   // down before the slot is written, unless it is here already (or no slot is free)
+                if (sc->slot_of[(size_t) o] >= 0) {
+                    sc_hit(sc, w, o);
+                    ++c->sc_kept;
+                } else if ((c->sv[w][k] = sc_take(sc, w, o)) != nullptr)
+                    ++c->sc_kept;
             }
             if (!ssd_tagged(e[k].src_gu)) continue;
             const int g = ssd_expert(e[k].src_gu);
@@ -295,27 +346,21 @@ void dma_ssd_list(DmaCard* c, int w, DmaEnt* e, const int* prev, int n, size_t g
             } else {
                 at = sc_take(sc, w, g);
                 c->pend[w][k] = g;
+                if (!at) {   // no slot: read through the bounce buffer, not kept
+                    at = dma_ssd_bounce(c, w, n, gb, db) + (size_t) k * (gb + db);
+                    e[k].src_gu = at, e[k].src_dn = at + gb;
+                    continue;
+                }
             }
             sc->rel[w].push_back(g);   // it lives on the card now: let go once this copy has landed
             e[k].src_gu = at, e[k].src_dn = at + gb;
         }
         return;
     }
-    const size_t want = (size_t) n * (gb + db);
-    if (c->sb_cap[w] < want) {
-        if (c->sb[w]) cudaFreeHost(c->sb[w]);
-        c->sb[w] = nullptr;
-        c->sb_cap[w] = 0;
-        const size_t cap = std::max(want, (size_t) 32 * (gb + db));
-        if (cudaHostAlloc((void**) &c->sb[w], cap, cudaHostAllocPortable) != cudaSuccess) {
-            std::fprintf(stderr, "fnx ssd: the copier of device %d has no page-locked bounce buffer of %zu MiB\n", c->dev, cap >> 20);
-            std::abort();
-        }
-        c->sb_cap[w] = cap;
-    }
+    char* sb = dma_ssd_bounce(c, w, n, gb, db);
     for (int k = 0; k < n; ++k)
         if (ssd_tagged(e[k].src_gu)) {
-            char* at = c->sb[w] + (size_t) k * (gb + db);
+            char* at = sb + (size_t) k * (gb + db);
             c->pend[w][k] = ssd_expert(e[k].src_gu);
             e[k].src_gu = at, e[k].src_dn = at + gb;
         }
@@ -334,6 +379,8 @@ void dma_ssd_down(DmaCard* c, int w, const DmaEnt* e, int n, size_t gb, size_t d
             std::abort();
         }
     }
+    // a slot the other stream's last list copied up has landed before it is copied down (on the card: the copier does not wait)
+    if (c->evl[1 - w]) cudaStreamWaitEvent(c->csd[w], c->evl[1 - w], 0);
     for (int k = 0; k < n; ++k)
         if (char* d = c->sv[w][k]) {
             cudaMemcpyAsync(d, e[k].dst_gu, gb, cudaMemcpyDeviceToHost, c->csd[w]);
@@ -341,7 +388,24 @@ void dma_ssd_down(DmaCard* c, int w, const DmaEnt* e, int n, size_t gb, size_t d
             cudaEventRecord(c->evd[w][k], c->csd[w]);
         }
 }
+// stream s's (list w's) copies issued so far, for the other stream's next down copies
+void dma_ssd_mark(DmaCard* c, int w, cudaStream_t s) {
+    if (!c->sc) return;   // no RAM tier: nothing is copied down
+    if (!c->evl[w] && cudaEventCreateWithFlags(&c->evl[w], cudaEventDisableTiming) != cudaSuccess) {
+        std::fprintf(stderr, "fnx ssd: the copier of device %d: no list event: %s\n", c->dev, cudaGetErrorString(cudaGetLastError()));
+        std::abort();
+    }
+    cudaEventRecord(c->evl[w], s);
+}
 ''')
+rep("p100_dma.cuh",
+    "                cuStreamWriteValue32((CUstream) c->cs2, (CUdeviceptr) &reinterpret_cast<DmaDev*>(c->d)->flag2, s2, 0);\n",
+    "                cuStreamWriteValue32((CUstream) c->cs2, (CUdeviceptr) &reinterpret_cast<DmaDev*>(c->d)->flag2, s2, 0);\n"
+    "                if (ssd_on()) dma_ssd_mark(c, 1, c->cs2);   // ssd3_patch.py\n")
+rep("p100_dma.cuh",
+    "        cuStreamWriteValue32((CUstream) c->cs, (CUdeviceptr) &reinterpret_cast<DmaDev*>(c->d)->flag, s, 0);\n",
+    "        cuStreamWriteValue32((CUstream) c->cs, (CUdeviceptr) &reinterpret_cast<DmaDev*>(c->d)->flag, s, 0);\n"
+    "        if (ssd_on()) dma_ssd_mark(c, 0, c->cs);   // ssd3_patch.py\n")
 # the loop: prev to the lists, the evicted expert down before its slot is written
 rep("p100_dma.cuh",
     "                    dma_ssd_list(c, 1, e2, n2, gb2, db2, c->cs2);\n",
@@ -392,35 +456,43 @@ rep("p100_dma.cuh",
     "            if (s.mem) cudaFreeHost(s.mem);\n"
     "        delete c->sc;\n"
     "    }\n"
-    "    for (int w = 0; w < 2; ++w)\n"
+    "    for (int w = 0; w < 2; ++w) {\n"
     "        if (c->csd[w]) {\n"
     "            cudaStreamSynchronize(c->csd[w]);\n"
     "            cudaStreamDestroy(c->csd[w]);\n"
     "            for (cudaEvent_t& v : c->evd[w])\n"
     "                if (v) cudaEventDestroy(v);\n"
-    "        }\n")
+    "        }\n"
+    "        if (c->evl[w]) cudaEventDestroy(c->evl[w]);\n"
+    "    }\n")
 # the engine's side: warm, save, find
 rep("p100_dma.cuh",
     "void p100_dma_wait(void* h, void* st) {\n",
-    r'''// ssd3_patch.py: the RAM tier filled with `hottest` (experts out of a slot, hottest first) while each class has room past its spare; the
-// card idle (the load)
+    r'''// ssd3_patch.py: the RAM tier (sized here by need: `hottest` is every expert out of a slot, hottest first) filled with the hottest while
+// each class has room past its spare, the coldest of them in the first slots and none marked used, so CLOCK (from slot 0) lets the
+// coldest go first; the card idle (the load)
 void p100_dma_ssd_warm(void* h, const std::vector<int>& hottest) {
     auto* c = (DmaCard*) h;
-    SsdCache* sc = c && ssd_ram_gib() > 0 ? dma_ssd_cache(c) : nullptr;
+    SsdCache* sc = c && ssd_ram_gib() > 0 ? dma_ssd_cache(c, &hottest) : nullptr;
     if (!sc) return;
     const auto t0 = std::chrono::steady_clock::now();
     std::vector<std::pair<int, char*>> todo;
     {
         std::lock_guard<std::mutex> lk(sc->mu);
-        std::vector<int> room(sc->cls.size());
-        for (size_t k = 0; k < room.size(); ++k) room[k] = sc->cls[k].n - sc->cls[k].held - SSD_SPARE;
+        std::vector<int> room(sc->cls.size()), pick;
+        for (size_t k = 0; k < room.size(); ++k) room[k] = sc->cls[k].n - sc->cls[k].held - SSD_SPARE_NEED;
         for (const int g : hottest) {
             if (!sc_on(sc, g)) continue;
             int& r = room[(size_t) sc->cls_of[(size_t) (g / NEXP)]];
             if (r <= 0 || sc->slot_of[(size_t) g] >= 0) continue;
             --r;
-            todo.push_back({g, sc_take(sc, -1, g)});
+            pick.push_back(g);
         }
+        for (auto it = pick.rbegin(); it != pick.rend(); ++it)
+            if (char* at = sc_take(sc, -1, *it)) {
+                sc->cls[(size_t) sc->cls_of[(size_t) (*it / NEXP)]].ref[(size_t) sc->slot_of[(size_t) *it]] = 0;
+                todo.push_back({*it, at});
+            }
     }
     ssd_parallel(todo.size(), ssd_threads(), [&](size_t i, std::vector<char>& tmp) {
         const int g = todo[i].first;
@@ -445,18 +517,19 @@ void p100_dma_ssd_save(void* h, const std::vector<SsdFill>& slots, void* st) {
             continue;
         }
         char* at = sc_take(sc, -1, f.g);
+        if (!at) continue;   // no slot: not kept
         if (cudaMemcpyAsync(at, f.gu, f.gs, cudaMemcpyDeviceToHost, (cudaStream_t) st) != cudaSuccess ||
             cudaMemcpyAsync(at + f.gs, f.dn, f.ds, cudaMemcpyDeviceToHost, (cudaStream_t) st) != cudaSuccess)
             throw std::runtime_error(std::string("FNX_SSD_RAM_GIB: a slot down: ") + cudaGetErrorString(cudaGetLastError()));
     }
 }
-// g's bytes in the RAM tier (gate|up, then down), or null; the copier idle (a prompt pass)
+// g's bytes in the RAM tier (gate|up, then down), or null; the copier idle (a prompt pass, which stages every expert: no mark for CLOCK)
 const char* p100_dma_ssd_find(void* h, int g) {
     auto* c = (DmaCard*) h;
     SsdCache* sc = c && ssd_ram_gib() > 0 ? dma_ssd_cache(c) : nullptr;
     if (!sc) return nullptr;
     std::lock_guard<std::mutex> lk(sc->mu);
-    return sc->slot_of[(size_t) g] >= 0 ? sc_hit(sc, -1, g) : nullptr;
+    return sc->slot_of[(size_t) g] >= 0 ? sc_at(sc, g) : nullptr;
 }
 
 void p100_dma_wait(void* h, void* st) {

@@ -21,9 +21,11 @@ production engine since 18 Nov is `f28228d145e981b5…`: `6ccc87af7e9baf50…`'s
 option (GUIDE.md, "Unsloth's UD-Q4_K_XL" and "Known limitations"). The fast UD-Q4_K_XL profile of 19 Nov (GUIDE.md, "Fast
 UD-Q4_K_XL") ran on `fa2b8f86ab7e6cd2…`: the sources as they are here plus our CPU-experts patch (`FNX_CPU_EXPERTS`, not
 published; its switch off in that profile), built with that option. No file of this folder changed for it.
-The 32 GB mode of 19 Nov (GUIDE.md, "32 GB of RAM") changes no file here either: `build.sh --32g` copies this folder and
-applies `engine-32g/ssd_patch.py` and `engine-32g/ssd3_patch.py` to the copy (`engine-32g/ssd.hpp` is a new file there).
-Our build of those sources is `4b5107bfe7d25916…`, the engine the 32 GB mode was measured on.
+The low-RAM modes of 19 Nov (GUIDE.md, "32 GB of RAM" and "UD-Q4_K_XL on 64 GB") change no file here either:
+`build.sh --32g` copies this folder and applies `engine-32g/ssd_patch.py`, `ssd3_patch.py`, `ssd3f_patch.py` and
+`ssd3g_patch.py` to the copy, in that order (`engine-32g/ssd.hpp` is a new file there). Our build of those sources is
+`3d1c17ba7e13c418…`, the engine both modes were last measured on; the 32 GB mode's first build, with the first two
+patches as they were that afternoon, was `4b5107bfe7d25916…`.
 
 | File | Origin | SHA-256 |
 |---|---|---|

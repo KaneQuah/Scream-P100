@@ -543,10 +543,13 @@ def judge(h, cs, copies, disk, model, data_free):
             prof["q4"] = "UD-Q4_K_XL (--model q4_k_xl) fits with room; its lookup table may stay in the page cache"
     elif mem >= 60:
         prof = {"ram": 64, "model": "iq3_s", "setup": "bash setup.sh DATA --ram 64",
-                "why": f"{mem} GiB of RAM: the 64 GB mode (262,144 positions, the lookup table read from the disk), IQ3_S only"}
+                "why": f"{mem} GiB of RAM: the IQ3_S's 64 GB mode (262,144 positions, the lookup table read from the disk)"}
+        prof["q4"] = ("The exact UD-Q4_K_XL has a 64 GB mode too, at 524,288 positions on the low-RAM engine (`bash build.sh --32g`, "
+                      "then `setup.sh DATA --model q4_k_xl --ram 64`; the model files on an SSD, writing at about 70 % of its 96 GB speed)")
     else:
-        prof = {"ram": 0, "model": None, "setup": None, "why": f"{mem} GiB of RAM: too little; the 64 GB mode needs about 60 GiB"}
-        add("stop", f"{mem} GiB of RAM", "64 GB at least (the load's 55.6 GiB must fit beside the system)", "[measured] in a 58 GiB cgroup")
+        prof = {"ram": 0, "model": None, "setup": None, "why": f"{mem} GiB of RAM: too little; the 64 GB modes need about 60 GiB"}
+        add("stop", f"{mem} GiB of RAM", "64 GB at least (the load's 55.6 GiB must fit beside the system); with 32 GB only the fast "
+            "UD-Q4_K_XL's 32 GB mode runs (lossy; docs/GUIDE.md, \"32 GB of RAM\")", "[measured] in a 58 GiB cgroup")
     key = "iq3_s_64gb" if prof["ram"] == 64 else (model or prof["model"] or "iq3_s")
     holds = HOLDS.get(key, HOLDS["iq3_s"])
     if prof["ram"] and h["avail_gib"] < holds - 5 and not h["engines"]:   # run.sh's rule; the load's extra comes partly from the page cache

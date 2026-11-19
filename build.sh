@@ -5,11 +5,12 @@
 #   bash build.sh                                   # nvcc from PATH, host compiler g++-13 if present
 #   CUDA=/usr/local/cuda-12.4 JOBS=8 bash build.sh   # a toolkit root and the parallel jobs
 #   PF_JOB=64 bash build.sh                         # the default until 17 Nov 2026: prompt-path jobs of 64 rows
-#   bash build.sh --32g                             # the 32 GB mode's own engine, build-32g/split/strata-split-2
+#   bash build.sh --32g                             # the low-RAM engine (32 GB and 64 GB modes), build-32g/split/strata-split-2
 #
-# --32g: a fresh copy of engine/ in build-32g/engine-32g with engine-32g/'s two patches applied (the 32 GB mode,
-# FNX_SSD_EXPERTS: docs/GUIDE.md, "32 GB of RAM"), built into build-32g. engine/ and build/ stay as they are, so every other
-# profile keeps its engine. Needs python3.
+# --32g: a fresh copy of engine/ in build-32g/engine-32g with engine-32g/'s patches applied (FNX_SSD_EXPERTS: the experts the
+# cards do not hold come from the model's files through a RAM tier; the fast UD-Q4_K_XL's 32 GB mode and the exact
+# UD-Q4_K_XL's 64 GB mode, docs/GUIDE.md), built into build-32g. engine/ and build/ stay as they are, so every other profile
+# keeps its engine. Needs python3.
 #
 # Environment:
 #   PF_JOB    rows of one expert per prompt-path job, a compile-time constant: 96 (default: our production for all three
@@ -75,8 +76,9 @@ if [ "$V32" = 1 ]; then
   mkdir -p "$B"
   rm -rf "$ENGINE"
   cp -r "$HERE/engine" "$ENGINE"
-  (cd "$ENGINE" && python3 "$HERE/engine-32g/ssd_patch.py" && python3 "$HERE/engine-32g/ssd3_patch.py") || die "engine-32g/'s patches did not apply to engine/"
-  say "the 32 GB mode's sources in $ENGINE"
+  (cd "$ENGINE" && for p in ssd_patch ssd3_patch ssd3f_patch ssd3g_patch; do python3 "$HERE/engine-32g/$p.py" || exit 1; done) ||
+    die "engine-32g/'s patches did not apply to engine/"
+  say "the low-RAM engine's sources in $ENGINE"
 fi
 
 # --- configure and build (the production build: Release, sm_60, 2 cards, prompt-path jobs of 96 rows)
@@ -100,5 +102,5 @@ if [ -n "$missing" ]; then
   echo "$missing" >&2
   say "WARNING: $EXE cannot find the libraries above; add the toolkit's lib64 to LD_LIBRARY_PATH when you run it"
 fi
-if [ "$V32" = 1 ]; then say "built $EXE (the 32 GB mode's engine; setup.sh --ram 32 names it)"; else say "built $EXE"; fi
+if [ "$V32" = 1 ]; then say "built $EXE (the low-RAM engine; setup.sh --ram 32, and --ram 64 with UD-Q4_K_XL, name it)"; else say "built $EXE"; fi
 sha256sum "$EXE"
