@@ -5,10 +5,12 @@
 **Big MoE models on two retired Tesla P100s. Loud fans, fast tokens.**
 
 Qwen3.8-Flash-Next and Edge0-145B with a 512k context on a pair of 2016 server cards.<br>
+Built and measured for exactly **two Tesla P100 16 GB, each on its own PCIe 3.0 x16 link**.<br>
 Flash-Next IQ3_S: **~67 tok/s writing · 110+ tok/s edits · ~1,000 tok/s reading a 38k-token prompt**.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![GPU: 2× Tesla P100](https://img.shields.io/badge/GPU-2%C3%97%20Tesla%20P100%2016%20GB-76b900?logo=nvidia&logoColor=white)
+![PCIe 3.0 x16 per card](https://img.shields.io/badge/PCIe-3.0%20x16%20per%20card-76b900)
 ![CUDA 12 · sm_60](https://img.shields.io/badge/CUDA-12.x%20%C2%B7%20sm__60-76b900)
 ![Context 512k](https://img.shields.io/badge/context-524%2C288%20tokens-orange)
 ![API: OpenAI-compatible](https://img.shields.io/badge/API-OpenAI--compatible-412991)
@@ -70,6 +72,11 @@ python3 bench/bench.py --strata-dir /data/flash-next/strata-v0.2.9 --wait
 Building by hand, preparing the files and every option are in the [full guide](docs/GUIDE.md#install).
 
 ## 📊 Speed
+
+> **Every number here is from one machine: two Tesla P100 16 GB, each on its own PCIe 3.0 x16 link (11.9 GB/s from
+> RAM to each card), one card on each CPU** (see "Our machine" below). Most experts live in RAM and stream over these
+> links, so with x8 slots or PCIe Gen2 expect clearly slower reading and somewhat slower writing
+> ([Other machines](docs/GUIDE.md#other-machines)).
 
 `bench/bench.py` on our server, tok/s, each a single run on a freshly loaded engine, exact routing (`FNX_ROUTE_PRIOR=0`),
 built from this repository's 17 Nov sources (`e56c3f60`, before the 18 Nov switch):

@@ -6,7 +6,8 @@
 
 This is a port of Strata's all-cards split engine (`strata-split-2`) to the NVIDIA Tesla P100 (Pascal, sm_60). It runs
 **Qwen3.8-Flash-Next** on **two P100 16 GB** cards with MTP drafting and pictures, from either of two GGUF files, and
-since 15 Nov 2026 **Edge0-145B**, Flash-Next with its experts in a latent space. On our server, with this repository's
+since 15 Nov 2026 **Edge0-145B**, Flash-Next with its experts in a latent space. On our server (two P100 16 GB, **each on
+its own PCIe 3.0 x16 link**; with x8 or Gen2 links expect less, see "Other machines"), with this repository's
 benchmark (see "Our numbers"; the UD-Q4_K_XL rows are our own test chain with 18 Nov's switch and settings):
 
 | Model file and profile | Context | RAM | Fresh writing | Edits (py / md) | Reading 38,862 tokens |
@@ -56,6 +57,10 @@ included: you download them yourself (see "Prepare the model files").
 - Engine switches: [docs/SWITCHES.md](SWITCHES.md). How the port came about: [docs/HISTORY.md](HISTORY.md).
 
 ## Our numbers
+
+> All numbers in this guide come from one machine: **two Tesla P100 16 GB, each on its own PCIe 3.0 x16 link** (11.9-12.3
+> GB/s from RAM to each card), one card on each CPU (see "The machine" below). With x8 links or PCIe Gen2, expect slower
+> reading and somewhat slower writing (see "Other machines").
 
 ### This release, with the benchmark
 
