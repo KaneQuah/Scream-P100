@@ -7,19 +7,21 @@
 This is a port of Strata's all-cards split engine (`strata-split-2`) to the NVIDIA Tesla P100 (Pascal, sm_60). It runs
 **Qwen3.8-Flash-Next** on **two P100 16 GB** cards with MTP drafting and pictures, from either of two GGUF files, and
 since 15 Nov 2026 **Edge0-145B**, Flash-Next with its experts in a latent space. On our server, with this repository's
-benchmark (see "Our numbers"; the UD-Q4_K_XL row is from 16 Nov, before 18 Nov's switch and settings):
+benchmark (see "Our numbers"; the UD-Q4_K_XL rows are our own test chain with 18 Nov's switch and settings):
 
 | Model file and profile | Context | RAM | Fresh writing | Edits (py / md) | Reading 38,862 tokens |
 |---|---:|---|---:|---:|---:|
 | ISTA-DASLab's GSQ-RCO **IQ3_S** (`setup.sh DATA`) | 524,288 | 96 GB | 66.5 tok/s | 110.7 / 115.8 | 1,012 tok/s |
 | the same in the **64 GB mode** (`setup.sh DATA --ram 64`) | 262,144 | 64 GB | 63.8 | 93.6 / 99.2 | 807 |
-| Unsloth's **UD-Q4_K_XL** (`setup.sh DATA --model q4_k_xl`) | 524,288 | 96 GB | 50.9 | 62.5 / 63.7 | 795 |
+| Unsloth's **UD-Q4_K_XL** (`setup.sh DATA --model q4_k_xl`) ² | 524,288 | 96 GB | 52.3 | 60.2 / 63.6 | 963 ³ |
 | Edge0's **Edge0-145B NVFP4** (`setup.sh DATA --model edge0`) | 524,288 | 96 GB | 55.0 | 96.6 / 98.9 | 691 |
 | ⚠️ the **fast UD-Q4_K_XL**, lossy (`--model q4_k_xl --fast`) ² | 524,288 | 96 GB | 73.9 | 125.1 / 126.4 | 1,007 ³ |
 | ⚠️ the same in the **32 GB mode** (`--model q4_k_xl --fast --ram 32`) ² | 524,288 | 32 GB | 68.2 | 121.3 / 121.7 | 770 ³ |
 
-² Our own test chain, not this benchmark (see "Fast UD-Q4_K_XL" and "32 GB of RAM"); answers worded differently from
-the exact profile. ³ A cold read of 36,424 tokens.
+² Our own test chain on 18-19 Nov, not this benchmark (see "Fast UD-Q4_K_XL" and "32 GB of RAM"); the two lossy
+profiles word answers differently from the exact one. The benchmark's UD-Q4_K_XL run of 16 Nov, before 18 Nov's switch:
+50.9, 62.5 / 63.7 and 795. ³ 36,424 tokens on a freshly loaded engine; the benchmark empties the page cache first and
+its read waits for the disk, our chain does not (see "Unsloth's UD-Q4_K_XL").
 
 > **Built for these files, on Tesla P100 cards.** Files with other expert types (Q6_K, Q3_K, Q2_K, ...) do not use
 > this port's P100 kernels and run slower than Strata itself, or not at all (see "Known limitations"). On other cards,

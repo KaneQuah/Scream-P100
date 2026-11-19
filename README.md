@@ -78,16 +78,17 @@ built from this repository's 17 Nov sources (`e56c3f60`, before the 18 Nov switc
 |---|---:|---:|---:|---:|---:|
 | **Flash-Next IQ3_S** (ISTA-DASLab GSQ-RCO) | 512k | 96 GB | **66.5** | **110.7 / 115.8** | **1,012** |
 | Flash-Next IQ3_S, 64 GB mode ¹ | 256k | 64 GB | 63.8 | 93.6 / 99.2 | 807 |
-| Flash-Next UD-Q4_K_XL (Unsloth) ² | 512k | 96 GB | 50.9 | 62.5 / 63.7 | 795 |
+| Flash-Next UD-Q4_K_XL (Unsloth) ² | 512k | 96 GB | 52.3 | 60.2 / 63.6 | 963 |
 | Edge0-145B NVFP4 | 512k | 96 GB | 55.0 | 96.6 / 98.9 | 691 |
 | ⚠️ Fast UD-Q4_K_XL, **lossy** ⁴ | 512k | 96 GB | 73.9 | 125.1 / 126.4 | 1,007 |
 | ⚠️ Fast UD-Q4_K_XL, lossy, **32 GB mode** ⁵ | 512k | 32 GB | 68.2 | 121.3 / 121.7 | 770 |
 
 ¹ We have no 64 GB machine: this ran in a 58 GiB memory cgroup on our 96 GB server.<br>
-² Measured on 16 Nov. Since 18 Nov the UD-Q4_K_XL profiles write fresh text 3.3 % faster in our own rounds
-(51.75 → 53.45 tok/s, same answers), and writing at a depth of 58.5k is 1.7-4.3 % slower. `bench.py` has not been run
-with them yet.<br>
-⁴ Our own test chain on 18-19 Nov, not `bench.py`; the exact UD-Q4_K_XL in the same window: 52.3, 60.2 / 63.6, 963.
+² With 18 Nov's switch and settings, our own test chain on 18-19 Nov (not `bench.py`), the same window as the fast
+profile; its long read is 36,424 tokens on a freshly loaded engine with the lookup table in the page cache, as it
+mostly is in use (a 29,700-token read in our production on the night of 18 Nov: 974 tok/s). `bench.py` on 16 Nov, before the switch:
+50.9, 62.5 / 63.7 and 795, its read the first after a load with the page cache emptied, so it waits for the disk.<br>
+⁴ Our own test chain on 18-19 Nov, not `bench.py`, in the same window as the exact UD-Q4_K_XL row ².
 Answers are worded differently from the exact profile, see [Fast UD-Q4_K_XL](docs/GUIDE.md#fast-ud-q4_k_xl).<br>
 ⁵ Our own test chain on 19 Nov in a 28 GiB memory cgroup on our 96 GB server (we have no 32 GB machine), the model files
 on an SSD; the same profile with every expert pinned, in the same session: 69.9, 125.4 / 123.8, 909. See
