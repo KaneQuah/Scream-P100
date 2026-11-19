@@ -797,8 +797,9 @@ file.
 the tables. By hand, for example with the Hugging Face CLI, one file at a time, then `sha256sum`:
 
 ```bash
-hf download ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf \
+hf download ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf \
     --revision ed59f92082b1e93c0e96d60a8b11aab089b52f09 --local-dir "$MODELS"
+mv "$MODELS"/IQ3_S/*.gguf "$MODELS"/   # the IQ3_S shards sit in an IQ3_S folder of that repository
 ```
 
 **The tokenizer folder** (vocabulary, merges and chat template, taken from the GGUF's metadata):

@@ -114,7 +114,7 @@ if [ "$RAM" = 32 ] || { [ "$RAM" = 64 ] && [ "$MODEL" = q4_k_xl ]; }; then   # t
 fi
 GG=$HERE/third_party/llama.cpp
 declare -A URL=([$MMPROJ]=$ISTA/$MMPROJ)
-for f in "${IQ3_S[@]}"; do URL[$f]=$ISTA/$f; done
+for f in "${IQ3_S[@]}"; do URL[$f]=$ISTA/IQ3_S/$f; done   # the shards sit in the IQ3_S folder at this revision (found by Kenzu)
 for f in "${Q4_K_XL[@]}"; do URL[$f]=$UNSLOTH/$f; done
 for f in "${EDGE0_FILES[@]}"; do URL[$f]=$EDGE0/${f#edge0-145b/}; done
 case $MODEL in
