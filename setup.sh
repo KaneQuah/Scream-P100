@@ -20,6 +20,7 @@
 #   bash setup.sh /data/edge0 --model edge0                   # Edge0's Edge0-145B-NVFP4 (README, "Edge0-145B")
 #   bash setup.sh /data/flash-next-coder --models /data/flash-next/models --coder   # the Coder's experts only (README, "Coder")
 #   bash setup.sh /data/flash-next-q4-fast --models /data/flash-next-q4/models --model q4_k_xl --fast   # the fast UD-Q4_K_XL, lossy
+#   bash setup.sh /data/flash-next-q4-32 --models /data/flash-next-q4/models --model q4_k_xl --fast --ram 32   # the same with 32 GB of RAM
 #
 # Options:
 #   --model M        iq3_s (default): ISTA-DASLab's GSQ-RCO IQ3_S; q4_k_xl: Unsloth's UD-Q4_K_XL (512k, needs 96 GB of RAM);
@@ -29,6 +30,9 @@
 #   --no-pictures    no projector download, no encoder build, a profile without pictures
 #   --route-prior X  FNX_ROUTE_PRIOR in the profile: 0 (default) is exact; 0.15 is our production setting, faster, lossy
 #   --ram 64         the 64 GB mode in the profile (262,144 positions, the lookup table from the disk; IQ3_S only); default 96
+#   --ram 32         the 32 GB mode (with --fast only; docs/GUIDE.md, "32 GB of RAM"): no expert pinned in RAM, the experts the
+#                    cards do not hold read from the model's files into a RAM tier (FNX_SSD_EXPERTS); wants the files on an SSD.
+#                    It has an engine of its own: run 'bash build.sh --32g' first (the profile names build-32g/)
 #   --coder          route only to the 256 experts a layer that ISTA-DASLab's Coder release keeps (FNX_EXPERT_MASK): faster,
 #                    lossy, for code; with either file
 #   --fast           the fast UD-Q4_K_XL (--model q4_k_xl only; docs/GUIDE.md, "Fast UD-Q4_K_XL"): the Coder mask, FNX_ROUTE_PRIOR=1.0
@@ -70,7 +74,7 @@ declare -A SHA=([${IQ3_S[0]}]=4c1eb2ceb4915e1192f4f386021897bde56a97f40a0bb78bb8
                 [${EDGE0_FILES[3]}]=ce9b4a20b92c5c866e65d84a3884c104986522471cf11cc5f797a153affbcc06
                 [$MMPROJ]=b1a82259702816a5330d7bd7607cd9676b11780e79ff7348c21103ff3ce49bd0)
 
-[ $# -ge 1 ] && [ "${1#-}" = "$1" ] || die "usage: bash setup.sh DATA [--model iq3_s|q4_k_xl|edge0] [--models DIR] [--strata DIR] [--no-pictures] [--route-prior X] [--ram 96|64] [--coder] [--fast] [--check]"
+[ $# -ge 1 ] && [ "${1#-}" = "$1" ] || die "usage: bash setup.sh DATA [--model iq3_s|q4_k_xl|edge0] [--models DIR] [--strata DIR] [--no-pictures] [--route-prior X] [--ram 96|64|32] [--coder] [--fast] [--check]"
 DATA=$1
 shift
 MODEL=iq3_s MODELS='' STRATA='' PICTURES=1 PRIOR=0 RAM=96 CODER=0 FAST=0 CHECK=0
@@ -81,14 +85,15 @@ while [ $# -gt 0 ]; do
     --strata) STRATA=${2:?--strata DIR}; shift 2 ;;
     --no-pictures) PICTURES=0; shift ;;
     --route-prior) PRIOR=${2:?--route-prior X}; shift 2 ;;
-    --ram) RAM=${2:?--ram 96 or 64}; [ "$RAM" = 96 ] || [ "$RAM" = 64 ] || die "--ram: 96 or 64"; shift 2 ;;
+    --ram) RAM=${2:?--ram 96, 64 or 32}; [ "$RAM" = 96 ] || [ "$RAM" = 64 ] || [ "$RAM" = 32 ] || die "--ram: 96, 64 or 32"; shift 2 ;;
     --coder) CODER=1; shift ;;
     --fast) FAST=1; shift ;;
     --check) CHECK=1; shift ;;
     *) die "unknown option $1" ;;
   esac
 done
-[ "$RAM" = 96 ] || [ "$MODEL" = iq3_s ] || die "--ram 64: only with the IQ3_S file (UD-Q4_K_XL's and Edge0's profiles need 96 GB)"
+[ "$RAM" != 64 ] || [ "$MODEL" = iq3_s ] || die "--ram 64: only with the IQ3_S file (UD-Q4_K_XL's and Edge0's profiles need 96 GB; for 32 GB see --ram 32)"
+[ "$RAM" != 32 ] || [ "$FAST" = 1 ] || die "--ram 32: only with --model q4_k_xl --fast (docs/GUIDE.md, \"32 GB of RAM\")"
 [ "$CODER" = 0 ] || [ "$MODEL" != edge0 ] || die "--coder: not with --model edge0 (the Coder's list names Flash-Next's experts, not Edge0's)"
 [ "$FAST" = 0 ] || [ "$MODEL" = q4_k_xl ] || die "--fast: only with --model q4_k_xl (the settings were measured on UD-Q4_K_XL only)"
 [ "$FAST" = 0 ] || [ "$PRIOR" = 0 ] || die "--fast sets FNX_ROUTE_PRIOR=1.0 itself: leave --route-prior out"
@@ -98,6 +103,8 @@ MODELS=$(abspath "${MODELS:-$DATA/models}")
 STRATA=$(abspath "${STRATA:-$DATA/strata-v0.2.9}")
 PREP=$DATA/prep
 EXE=$HERE/build/split/strata-split-2
+BUILD_CMD="bash build.sh"
+if [ "$RAM" = 32 ]; then EXE=$HERE/build-32g/split/strata-split-2; BUILD_CMD="bash build.sh --32g"; fi   # the 32 GB mode's own engine
 GG=$HERE/third_party/llama.cpp
 declare -A URL=([$MMPROJ]=$ISTA/$MMPROJ)
 for f in "${IQ3_S[@]}"; do URL[$f]=$ISTA/$f; done
@@ -116,7 +123,7 @@ ok() { say "ok: $*"; }
 gb() { awk -v b="$1" 'BEGIN {printf "%.1f GB", b / 1e9}'; }
 
 # ------------------------------------------------------------------ checks
-[ -x "$EXE" ] || die "no $EXE: run 'bash build.sh' first"
+[ -x "$EXE" ] || die "no $EXE: run '$BUILD_CMD' first"
 [ -d "$GG/gguf-py/gguf" ] || die "no $GG/gguf-py: run 'bash build.sh' first (it fetches llama.cpp)"
 for t in git curl sha256sum python3; do command -v $t >/dev/null || die "$t is needed"; done
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || die "Python 3.10 or newer is needed"
@@ -143,6 +150,8 @@ elif [ "$RAM" = 96 ] && [ "$mem_gib" -lt 88 ]; then
   say "WARNING: $mem_gib GiB of RAM; this profile needs 96 GB (about 85 GiB once loaded, more while loading); with 64 GB use --ram 64"
 elif [ "$RAM" = 64 ] && [ "$mem_gib" -lt 60 ]; then
   say "WARNING: $mem_gib GiB of RAM; the 64 GB mode needs 64 GB"
+elif [ "$RAM" = 32 ] && [ "$mem_gib" -lt 30 ]; then
+  say "WARNING: $mem_gib GiB of RAM; the 32 GB mode needs 32 GB (and FNX_SSD_RAM_GIB lower than its 9.5 with less)"
 else
   ok "$mem_gib GiB of RAM"
 fi

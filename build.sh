@@ -5,6 +5,11 @@
 #   bash build.sh                                   # nvcc from PATH, host compiler g++-13 if present
 #   CUDA=/usr/local/cuda-12.4 JOBS=8 bash build.sh   # a toolkit root and the parallel jobs
 #   PF_JOB=64 bash build.sh                         # the default until 17 Nov 2026: prompt-path jobs of 64 rows
+#   bash build.sh --32g                             # the 32 GB mode's own engine, build-32g/split/strata-split-2
+#
+# --32g: a fresh copy of engine/ in build-32g/engine-32g with engine-32g/'s two patches applied (the 32 GB mode,
+# FNX_SSD_EXPERTS: docs/GUIDE.md, "32 GB of RAM"), built into build-32g. engine/ and build/ stay as they are, so every other
+# profile keeps its engine. Needs python3.
 #
 # Environment:
 #   PF_JOB    rows of one expert per prompt-path job, a compile-time constant: 96 (default: our production for all three
@@ -14,7 +19,7 @@
 #   HOSTCXX   host C++ compiler for nvcc and the link; default g++-13, else g++. CUDA 12.4 accepts gcc up to 13.
 #   JOBS      parallel compile jobs (default 8). Each nvcc job takes 1-2 GB of RAM; never build beside a loaded engine
 #             on a box whose RAM the engine fills (it pins most of it).
-#   B         build directory (default ./build; another one needs profile/fill_profile.py --exe)
+#   B         build directory (default ./build, with --32g ./build-32g; another one needs profile/fill_profile.py --exe)
 #   GG        llama.cpp checkout (default ./third_party/llama.cpp); fetched at the pinned commit when missing.
 #
 # Steps: fetch and check the pinned llama.cpp headers (only headers are used; ggml is not built), regenerate
@@ -22,7 +27,13 @@
 # function (the engine exchanges sums through pinned host memory only), and warn if it cannot find its CUDA libraries.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-B=${B:-$HERE/build}
+V32=0
+case "${1:-}" in
+  --32g) V32=1 ;;
+  "") ;;
+  *) echo "build.sh: unknown option $1 (the only one is --32g)" >&2; exit 1 ;;
+esac
+if [ "$V32" = 1 ]; then B=${B:-$HERE/build-32g}; else B=${B:-$HERE/build}; fi
 JOBS=${JOBS:-8}
 PF_JOB=${PF_JOB:-96}
 GG=${GG:-$HERE/third_party/llama.cpp}
@@ -57,8 +68,19 @@ bash "$HERE/scripts/gen_iq3s_x.sh" "$GG" "$tmp" >/dev/null || die "scripts/gen_i
 cmp -s "$tmp" "$HERE/engine/src/iq3s_x.cuh" || die "engine/src/iq3s_x.cuh does not match what $GG's vecdotq.cuh gives"
 say "llama.cpp headers at $LLAMA_COMMIT; engine/src/iq3s_x.cuh matches them"
 
+# --- with --32g: a fresh copy of engine/ with engine-32g/'s patches (ssd_patch.py copies ssd.hpp from beside itself)
+ENGINE=$HERE/engine
+if [ "$V32" = 1 ]; then
+  ENGINE=$B/engine-32g
+  mkdir -p "$B"
+  rm -rf "$ENGINE"
+  cp -r "$HERE/engine" "$ENGINE"
+  (cd "$ENGINE" && python3 "$HERE/engine-32g/ssd_patch.py" && python3 "$HERE/engine-32g/ssd3_patch.py") || die "engine-32g/'s patches did not apply to engine/"
+  say "the 32 GB mode's sources in $ENGINE"
+fi
+
 # --- configure and build (the production build: Release, sm_60, 2 cards, prompt-path jobs of 96 rows)
-cmake -S "$HERE" -B "$B" -DCMAKE_BUILD_TYPE=Release \
+cmake -S "$HERE" -B "$B" -DCMAKE_BUILD_TYPE=Release -DSCREAM_ENGINE_DIR="$ENGINE" \
   -DCMAKE_CUDA_COMPILER="$NVCC" -DCMAKE_CUDA_HOST_COMPILER="$HOSTCXX" -DCMAKE_CXX_COMPILER="$HOSTCXX" \
   -DCMAKE_CUDA_ARCHITECTURES=60 -DSTRATA_SPLIT_ARCH=60 -DSTRATA_SPLIT_CARDS=2 -DSTRATA_SPLIT_PF_JOB="$PF_JOB" \
   -DSTRATA_GGML_DIR="$GG" ${CUDA:+-DCUDAToolkit_ROOT="$CUDA"}
@@ -78,5 +100,5 @@ if [ -n "$missing" ]; then
   echo "$missing" >&2
   say "WARNING: $EXE cannot find the libraries above; add the toolkit's lib64 to LD_LIBRARY_PATH when you run it"
 fi
-say "built $EXE"
+if [ "$V32" = 1 ]; then say "built $EXE (the 32 GB mode's engine; setup.sh --ram 32 names it)"; else say "built $EXE"; fi
 sha256sum "$EXE"

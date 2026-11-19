@@ -101,6 +101,23 @@ these three on top. Lossy on purpose; GUIDE.md, "Fast UD-Q4_K_XL", has what they
 | `FNX_ROUTE_PRIOR` | 1.0 | 0 | ours | past each token's top 2 experts the router adds λ times the logits' range to the experts already in VRAM; the value is re-read at most every 20 ms from `FNX_ROUTE_PRIOR_FILE` if that is set | lossy; the answer depends on what the cards hold, so the same prompt at temperature 0 can differ between loads. At 1.0 with the mask it was as fast as at 2.0 |
 | `FNX_ONEHOP` | 2 | 1 (rings) | Strata (upstream's screen) | on two cards too, the window sums and the attention merge in one hop: each card adds the two fp16-rounded halves in fp32 | rounding: the last bits differ (about 1 % faster) |
 
+## The 32 GB mode
+
+`fill_profile.py --model q4_k_xl --fast --ram 32` (or `setup.sh ... --fast --ram 32`) writes the fast UD-Q4_K_XL profile
+with these on top, and without `FNX_EXPERT_DYN_GIB`. The `FNX_SSD_*` switches exist only in the 32 GB mode's own engine
+(`bash build.sh --32g`: `engine/` with `engine-32g/`'s patches); the engine in `build/` does not have them. GUIDE.md,
+"32 GB of RAM", has what they gave.
+
+| Switch or argument | 32 GB profile | Unset | Origin | What it does | Output effect |
+|---|---|---|---|---|---|
+| `FNX_SSD_EXPERTS` | 1 | 0 | ours (`engine-32g/`) | no routed expert gets a page-locked RAM copy at the load; an expert's host copy is its bytes in the model's GGUF files (each card's part: its rows of gate and up, its blocks of every down row), read through the page cache when needed. The cards' slots are filled from the files at the load and by the arena; a decode window's misses are read by the card's copier thread before it copies them up; a prompt read stages every expert of a layer (none is read in place), its experts out of the tier read by worker threads `FNX_SSD_AHEAD` layers ahead into a page-locked ring. Needs `FNX_P100_DMA=1`, `FNX_PF_STAGE_ALL=1` and no `FNX_PF_REFILL` (the load stops with a message otherwise), and the file's experts as they are on disk (not IQ files whose experts are converted at the load, not Edge0-145B) | where the bytes come from only. The prompt path stages short prompts too, as long ones |
+| `FNX_SSD_RAM_GIB` | 9.5 | 0 (no tier: a bounce buffer per copier) | ours | the RAM tier, GiB a card: page-locked slots in classes by an expert's size on the card (a class whose share holds fewer than 448 slots gets none, its layers read from the files), CLOCK within a class, empty slots first. Exclusive with the cards: the expert a plan evicts from a card slot (`ExpertCache::prev`, `DmaBox::prev`) is copied down into it on a stream of its own before the slot is written, and an expert copied up leaves it. Filled at the load with the hottest experts out of a slot (`FNX_EXPERT_PROFILE`'s order); before a read lends the prompt path its slots, their experts are copied down into it; a read stages from it what it holds | none by itself |
+| `FNX_SSD_AHEAD` | unset | 2 | ours | how many layers ahead of the one being staged the prompt path's readers read (1-6); the ring holds that many layers plus one | none |
+| `FNX_SSD_THREADS` | unset | 8 | ours | readers of a prompt layer, of a fill at the load, of the RAM tier's warm fill | none |
+| `FNX_SSD_COPIERS` | unset | 4 | ours | readers beside each card's copier for a decode list with two or more experts to read from the files (0: the copier reads them itself) | none |
+| `FNX_PF_TAIL_MIB` | 2700 | 3000 (4096 in the UD-Q4_K_XL templates) | ours | as in "The UD-Q4_K_XL profiles": with the Coder mask the prompt path used about 2.6 of the 3.8 GiB it borrowed, so 1.1 GiB more of experts stay on each card while a prompt is read | none |
+| `--conversation-cache-mib` | 1500 | 4000 in the templates | Strata's | RAM for parked conversations | none |
+
 ## The Edge0-145B profile
 
 `profile/flash-next-edge0-512k.template.json` is the IQ3_S profile with Edge0's files and these switches (`fill_profile.py

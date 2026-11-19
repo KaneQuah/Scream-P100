@@ -16,10 +16,15 @@
 --vision-exe Strata's strata-vision; leave it out to run without pictures (the "vision" block and --vision go)
 --route-prior FNX_ROUTE_PRIOR: 0 (default) is exact; 0.15 is our production setting, faster and lossy (README)
 --draft-vocab another draft vocabulary than engine/data/draft_vocab_sl.bin, e.g. engine/data/draft_vocab_en.bin
---exe        the engine, if build.sh was run with another build directory (default build/split/strata-split-2)
+--exe        the engine, if build.sh was run with another build directory (default build/split/strata-split-2; with
+             --ram 32 the 32 GB mode's own engine, build-32g/split/strata-split-2 from 'bash build.sh --32g')
 --gpu        the two P100 as nvidia-smi numbers them (default "0,1")
 --ram        96 (default): the template as it is; 64: the 64 GB mode (README, "64 GB of RAM"; IQ3_S only): FNX_PLE_RAM=0,
-             FNX_EXPERT_DYN_GIB=13, --max-context 262144 without YaRN, --conversation-cache-mib 2000
+             FNX_EXPERT_DYN_GIB=13, --max-context 262144 without YaRN, --conversation-cache-mib 2000; 32: the 32 GB mode
+             (docs/GUIDE.md, "32 GB of RAM"; with --fast only): FNX_SSD_EXPERTS=1 (no expert pinned in RAM, the ones the cards
+             do not hold read from the model's files into a RAM tier), FNX_SSD_RAM_GIB (--ssd-ram-gib), FNX_PF_TAIL_MIB=2700,
+             no FNX_EXPERT_DYN_GIB, --conversation-cache-mib 1500
+--ssd-ram-gib the 32 GB mode's RAM tier, GiB a card (default 9.5: 19 GiB over both, docs/GUIDE.md "32 GB of RAM")
 --coder      FNX_EXPERT_MASK=engine/data/coder_mask.txt: the router picks only from the 256 experts a layer that
              ISTA-DASLab's Coder release keeps (README, "Coder"); faster, lossy, for code
 --fast       the fast UD-Q4_K_XL (docs/GUIDE.md, "Fast UD-Q4_K_XL"; --model q4_k_xl only): the Coder mask as --coder plus
@@ -59,9 +64,11 @@ def main():
     ap.add_argument("--logs", default="/var/tmp")
     ap.add_argument("--route-prior", default="0")
     ap.add_argument("--draft-vocab", help="another draft vocabulary (default engine/data/draft_vocab_sl.bin)")
-    ap.add_argument("--exe", default=str(RELEASE / "build" / "split" / "strata-split-2"))
+    ap.add_argument("--exe", help="the engine (default build/split/strata-split-2; with --ram 32 build-32g/split/strata-split-2)")
     ap.add_argument("--gpu", default="0,1")
-    ap.add_argument("--ram", choices=["96", "64"], default="96", help="64: the 64 GB mode (README, \"64 GB of RAM\")")
+    ap.add_argument("--ram", choices=["96", "64", "32"], default="96",
+                    help="64: the 64 GB mode (README, \"64 GB of RAM\"); 32: the 32 GB mode (with --fast; docs/GUIDE.md, \"32 GB of RAM\")")
+    ap.add_argument("--ssd-ram-gib", type=float, default=9.5, help="the 32 GB mode's RAM tier, GiB a card (FNX_SSD_RAM_GIB, default 9.5)")
     ap.add_argument("--coder", action="store_true", help="only the Coder release's experts (README, \"Coder\")")
     ap.add_argument("--fast", action="store_true",
                     help="the fast UD-Q4_K_XL: Coder mask, FNX_ROUTE_PRIOR=1.0, FNX_ONEHOP=2 (lossy; docs/GUIDE.md, \"Fast UD-Q4_K_XL\")")
@@ -73,6 +80,10 @@ def main():
         sys.exit("--route-prior: 0 or more")
     if a.ram == "64" and a.model != "iq3_s":
         sys.exit("--ram 64: only with --model iq3_s (UD-Q4_K_XL's experts alone are 72 GiB)")
+    if a.ram == "32" and not a.fast:
+        sys.exit("--ram 32: only with --model q4_k_xl --fast (measured there only; docs/GUIDE.md, \"32 GB of RAM\")")
+    if not 1 <= a.ssd_ram_gib <= 64:
+        sys.exit("--ssd-ram-gib: GiB a card, 1 to 64")
     if a.coder and a.model == "edge0":
         sys.exit("--coder: not with --model edge0 (the Coder's list names Flash-Next's experts, not Edge0's latent ones)")
     if a.fast and a.model != "q4_k_xl":
@@ -83,6 +94,8 @@ def main():
     if len(cards) != 2 or not all(c.strip().isdigit() for c in cards) or cards[0].strip() == cards[1].strip():
         sys.exit("--gpu: two different card numbers, e.g. 0,1")
     template, files = MODELS[a.model]
+    if not a.exe:   # the 32 GB mode has an engine of its own (build.sh --32g)
+        a.exe = str(RELEASE / ("build-32g" if a.ram == "32" else "build") / "split" / "strata-split-2")
     values = {"{{RELEASE}}": str(RELEASE), "{{EXE}}": str(Path(a.exe).resolve()),
               "{{MODELS}}": str(Path(a.models).resolve()), "{{MTP}}": str(Path(a.mtp).resolve()),
               "{{TOKENIZER}}": str(Path(a.tokenizer).resolve()), "{{LOGS}}": str(Path(a.logs).resolve()),
@@ -122,6 +135,15 @@ def main():
         # (higher was no faster), FNX_ONEHOP=2 sums the two cards' halves in one pass
         cfg["env"]["FNX_ROUTE_PRIOR"] = "1.0"
         cfg["env"]["FNX_ONEHOP"] = "2"
+    if a.ram == "32":
+        # the 32 GB mode of 19 Nov 2026 (docs/GUIDE.md, "32 GB of RAM"): no expert pinned in RAM; the Coder's experts the cards do
+        # not hold sit in a RAM tier of --ssd-ram-gib a card, the rest is read from the model's files; the prompt path borrows no
+        # more expert slots than it uses (2700 of 4096 MiB), and parked conversations get 1500 MiB
+        cfg["env"]["FNX_SSD_EXPERTS"] = "1"
+        cfg["env"]["FNX_SSD_RAM_GIB"] = f"{a.ssd_ram_gib:g}"
+        cfg["env"]["FNX_PF_TAIL_MIB"] = "2700"
+        cfg["env"].pop("FNX_EXPERT_DYN_GIB", None)
+        cfg["args"][cfg["args"].index("--conversation-cache-mib") + 1] = "1500"
 
     native = Path(cfg["args"][cfg["args"].index("--native") + 1])
     need = [str(native.with_name(f)) for f in files] + [
@@ -141,7 +163,8 @@ def main():
         sys.exit("missing, nothing written:\n  " + "\n  ".join(missing))
     Path(a.out).write_text(json.dumps(cfg, indent=1) + "\n", encoding="utf-8")
     print(f"wrote {a.out} ({a.model}, FNX_ROUTE_PRIOR={cfg['env']['FNX_ROUTE_PRIOR']}, pictures {'on' if 'vision' in cfg else 'off'}, "
-          f"{a.ram} GB of RAM{', the Coder experts' if a.coder and not a.fast else ''}"
+          f"{a.ram} GB of RAM{f' (a RAM tier of {a.ssd_ram_gib:g} GiB a card)' if a.ram == '32' else ''}"
+          f"{', the Coder experts' if a.coder and not a.fast else ''}"
           f"{', FAST (lossy: Coder mask, λ 1.0, FNX_ONEHOP=2)' if a.fast else ''})")
 
 

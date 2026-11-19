@@ -15,6 +15,11 @@ benchmark (see "Our numbers"; the UD-Q4_K_XL row is from 16 Nov, before 18 Nov's
 | the same in the **64 GB mode** (`setup.sh DATA --ram 64`) | 262,144 | 64 GB | 63.8 | 93.6 / 99.2 | 807 |
 | Unsloth's **UD-Q4_K_XL** (`setup.sh DATA --model q4_k_xl`) | 524,288 | 96 GB | 50.9 | 62.5 / 63.7 | 795 |
 | Edge0's **Edge0-145B NVFP4** (`setup.sh DATA --model edge0`) | 524,288 | 96 GB | 55.0 | 96.6 / 98.9 | 691 |
+| ⚠️ the **fast UD-Q4_K_XL**, lossy (`--model q4_k_xl --fast`) ² | 524,288 | 96 GB | 73.9 | 125.1 / 126.4 | 1,007 ³ |
+| ⚠️ the same in the **32 GB mode** (`--model q4_k_xl --fast --ram 32`) ² | 524,288 | 32 GB | 68.2 | 121.3 / 121.7 | 770 ³ |
+
+² Our own test chain, not this benchmark (see "Fast UD-Q4_K_XL" and "32 GB of RAM"); answers worded differently from
+the exact profile. ³ A cold read of 36,424 tokens.
 
 > **Built for these files, on Tesla P100 cards.** Files with other expert types (Q6_K, Q3_K, Q2_K, ...) do not use
 > this port's P100 kernels and run slower than Strata itself, or not at all (see "Known limitations"). On other cards,
@@ -38,6 +43,9 @@ which when off give our UD-Q4_K_XL production engine's bits (see "Our numbers").
 since 18 Nov 2026, is a switch, `FNX_MTP_NORM_STREAMS`, which only the UD-Q4_K_XL profiles set: our UD-Q4_K_XL
 production engine since that day (`f28228d1`) is the sources of the one before it (`6ccc87af`) with the same change, not
 these sources. Unset, the engine makes the same calls as before (see "Unsloth's UD-Q4_K_XL" and "Known limitations").
+The 32 GB mode of 19 Nov 2026 (see "32 GB of RAM") has an engine of its own: `bash build.sh --32g` builds
+`build-32g/split/strata-split-2` from a copy of these sources with `engine-32g/`'s two patches applied (our build of them,
+`4b5107bf`, is what we measured), so these sources and the engine every other profile runs are not touched by it.
 The repository also has the build, run configs for each model, and the benchmark we measure with. The models are not
 included: you download them yourself (see "Prepare the model files").
 
@@ -423,6 +431,86 @@ KL 0.024, 59 of 64, and only +10 % fresh, +29 % edits).
 every test 1-2 % slower and writing after a long read 21 % slower on our Xeon Bronze 3106; with the mask and λ almost
 every expert a token needs is on the cards already. λ above 1.0 was no faster.
 
+## 32 GB of RAM
+
+> ⚠️ This is the **fast UD-Q4_K_XL** of the section above, lossy in the same way, on a machine with **32 GB of RAM**.
+> It has an engine of its own; build it, then write the profile (keep the model files on an SSD):
+>
+> ```bash
+> bash build.sh --32g
+> bash setup.sh /data/flash-next-q4-32 --models /data/flash-next-q4/models --model q4_k_xl --fast --ram 32
+> ```
+
+`build.sh --32g` copies `engine/` to `build-32g/engine-32g`, applies `engine-32g/ssd_patch.py` and `ssd3_patch.py` to the
+copy and builds it into `build-32g`; `engine/` and `build/` stay as they are, so no other profile changes. The profile
+(`setup.sh --ram 32`, or `fill_profile.py --model q4_k_xl --fast --ram 32`) names that engine.
+
+Every other profile pins a RAM copy of each expert the cards do not hold (the fast UD-Q4_K_XL: 70.5 GiB). The 32 GB mode
+pins none of them. The model files become the third tier, after VRAM and RAM:
+
+- `FNX_SSD_EXPERTS=1`: an expert's RAM copy is its bytes in the model's files, read when a card needs it. At the load the
+  cards' expert slots are filled from the files.
+- `FNX_SSD_RAM_GIB=9.5`: a RAM tier of 9.5 GiB a card (19 GiB over both cards) of page-locked slots, in classes by an
+  expert's size. It is filled at the load with the hottest experts the cards do not hold (by the route profile), and it
+  is exclusive with the cards: before a card slot is written, the expert it held is copied down into the tier (on the
+  copy engine of that direction, beside the copies up), and an expert copied up from the tier leaves it. Before a prompt
+  read lends expert slots to the prompt path, their experts go down into the tier too. What neither holds is read from
+  the files: while writing by four readers beside each card's copier (`FNX_SSD_COPIERS`), while reading a prompt two
+  layers ahead (`FNX_SSD_AHEAD`) into a small page-locked ring.
+- `FNX_PF_TAIL_MIB=2700` instead of 4096: with the mask the prompt path used about 2.6 GiB of the 3.8 it borrowed, and
+  every slot it does not borrow keeps an expert on the card while a prompt is read.
+- `--conversation-cache-mib 1500` instead of 4000 (RAM for parked conversations), and no `FNX_EXPERT_DYN_GIB`: with no
+  RAM copies it has nothing left to save.
+
+With the Coder mask 35.9 GiB of experts can ever be picked. The cards hold 19.7 GiB of them and the RAM tier 18.6 GiB, so
+nearly every expert a token needs is in VRAM or in RAM: while writing, the tier served all but a few of the misses in our
+runs (100 %, rounded). A prompt read still takes about 3.5 GiB a pass from the files, the experts its borrowed slots
+pushed out of the full tier.
+
+We have no 32 GB machine. We ran the profile on our 96 GB server in a memory cgroup of 28 GiB without swap
+(`systemd-run --user --scope -p MemoryMax=28G -p MemorySwapMax=0`), which counts the page-locked RAM, the engine's own
+memory and the page cache, so that the system and the picture encoder of a real 32 GB machine still have room. The model
+files are on the server's SAS SSD array (0.5-1 GB/s here). Our own test chain on 19 Nov 2026, tok/s, the fast profile
+with every expert pinned (96 GB) in the same session:
+
+| Test | Fast, 96 GB | **Fast, 32 GB mode** |
+|---|---:|---:|
+| Fresh writing: 12 new prompts, 300 tokens each | 69.9 | **68.2** |
+| Edit: the Python file (1,388 tokens), three runs | 125.4 | 116.5 / 123.0 / 124.4 |
+| Edit: the Markdown text, three runs | 123.8 | 118.7 / 121.3 / 125.2 |
+| Cold read of 36,424 tokens | 909 | 770 |
+| Writing right after that read | 72.9 | 56.9 |
+| Reads of 6,000 / 12,000 / 18,000 / 24,000 characters (s) | 2.95 / 5.07 / 6.07 / 10.15 | 3.44 / 5.30 / 6.49 / 10.39 |
+| Reads of 36,000 / 48,000 / 72,000 characters (tok/s) | 908 / 845 / 867 | 850 / 720 / 747 |
+| Writing code with reasoning (the 45 functions) | 85.6 ¹ | 80.5 |
+
+¹ The fast profile's first load on 18-19 Nov ("Fast UD-Q4_K_XL").
+
+- **Answers:** the 45 functions with hidden tests all passed (41 of 41 in English), the 16 English questions all
+  right. Where an expert's bytes come from does not change what is computed, but with λ 1.0 the routing depends on what
+  the cards hold, so as with the fast profile on 96 GB the answers vary a little between loads: against the fast profile
+  with pinned copies the first token was the same in 27 of 27 prompts (KL 0.010-0.016, an earlier build of this mode).
+- **RAM:** at most 21.7 GiB page-locked (the 19 GiB tier, the 1.1 GiB prompt ring, the engine's own pinned buffers),
+  1.3-4.1 GiB of the engine's own (the top while loading), and the lookup table's pages in the page cache, which
+  Linux gives back when it needs them. The picture encoder (`strata-vision`, a process of its own) adds about 1.2 GB.
+- **The load** took 310 s: 24 s of it filling the RAM tier from cold files.
+- **The disk matters.** Every load fills the cards' slots and the RAM tier from the files (about 35 GiB of experts), and
+  each prompt pass reads a few GiB. An NVMe SSD will do better than our SAS array; a hard disk or a network share will
+  be slow.
+- **With less free RAM** lower the tier (`fill_profile.py --ssd-ram-gib 8`, or `FNX_SSD_RAM_GIB` in `profile.json`): more
+  misses then come from the files. An earlier build of this mode, whose tier gave up held experts while it still had
+  empty slots and so held only about half of what it could, wrote fresh text at 34-40 tok/s and read 6,000 characters in
+  14-17 s: roughly what a tier too small for the work costs.
+- **Long contexts:** the K/V pool borrows expert slots as a conversation grows past 29,376 positions. Their experts are
+  not kept in the tier; they come from the files when a card needs them again.
+- **Only for the fast profile.** The switches also work without the mask, and at λ 0 the answers would stay exact, but
+  the exact UD-Q4_K_XL has 52 GiB of experts the cards do not hold against a 19 GiB tier. In the same 28 GiB cgroup it
+  wrote fresh text at 5-9 tok/s (our exact UD-Q4_K_XL with every expert pinned: 53.3 in the same session), with the tier
+  serving 74-83 % of the misses and the rest read from the files, and we stopped the run. That is why `--ram 32` needs
+  `--fast`. For a 64 GB machine we tried the exact profile in a 58 GiB cgroup with a 24 GiB tier a card: fresh writing
+  30.8 tok/s, edits 39-43 (pinned: 62-65), a 36k read 439 (776) and a 6,000-character read 27 s (4 s), because each
+  prompt pass still read about 16 GiB from our disk. That is not good enough to release yet.
+
 ## Edge0-145B
 
 [Edge0/Edge0-145B-NVFP4](https://huggingface.co/Edge0/Edge0-145B-NVFP4) (revision `cf9b3679`, the Edge0 Community Model
@@ -499,7 +587,8 @@ test chain (see "Our rounds"), round `n17e2` of the same morning: that engine, a
 - **96 GB of RAM**, or **64 GB** with the 64 GB mode (IQ3_S only, see "64 GB of RAM"). The default profile keeps a
   pinned RAM copy of every expert (about 47 GiB) and the model's 26.8 GiB lookup table (the second shard) in RAM. Once
   loaded it holds 82-85 GiB of the 91.8 GiB Linux sees on our server; during the load it needs 8.4 GiB more, freed at
-  the end. UD-Q4_K_XL and Edge0-145B need 96 GB too (see "Unsloth's UD-Q4_K_XL" and "Edge0-145B").
+  the end. UD-Q4_K_XL and Edge0-145B need 96 GB too (see "Unsloth's UD-Q4_K_XL" and "Edge0-145B"), except the fast
+  UD-Q4_K_XL's **32 GB mode** (lossy, the model files on an SSD; see "32 GB of RAM").
 - **Disk:** 83.6 GB for the IQ3_S shards (UD-Q4_K_XL: 111.3 GB; Edge0-145B: 57.3 GB plus the IQ3_S's 28.8 GB second shard), 0.9 GB for the picture projector, 0.8 GB for the MTP
   draft layer (another 6 GB while you prepare it). The IQ3_S load reads 48 GB from disk: about 100 s of the 5 minutes
   on ours (0.5 GB/s).
@@ -849,6 +938,10 @@ python3 tune/tune.py --data /data/flash-next --screen           # 2-3 hours, one
 - **Coder:** worse than the full model outside code, and in our tests it ignored an instruction given in Slovenian and
   answered a Slovenian question in English (see "Coder"). It has not been run with the 64 GB mode or through
   `bench/bench.py`.
+- **The 32 GB mode** was measured in a 28 GiB memory cgroup on our 96 GB server, with the model files on its SAS SSD
+  array, not on a real 32 GB machine or an NVMe drive, and only with the fast UD-Q4_K_XL (not through `bench/bench.py`).
+  `bash build.sh --32g` built its engine on our server from this folder (the patched sources equal to the ones we
+  measured, file for file); `setup.sh --ram 32` itself has not been run against the real downloads.
 - This folder's `build.sh` built the engine on our server (17.5 minutes with `JOBS=12`, llama.cpp from our Strata v0.2.9
   build tree at the pinned commit), and that engine gave our production engines' bits ("Our numbers"); the profile
   writer and the benchmark ran there as they are. The Coder change came after that: its sources (`maska_patch.py`

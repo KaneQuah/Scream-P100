@@ -1,4 +1,5 @@
 /build/
+/build-32g/
 /third_party/llama.cpp/
 __pycache__/
 /my-profile*.json
