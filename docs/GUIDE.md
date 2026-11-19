@@ -1,4 +1,4 @@
-# Scream fork P100: the full guide
+# Scream P100: the full guide
 
 [← back to the README](../README.md) · Everything about the port in one place: numbers, each model, install by hand, switches, other machines, limits.
 
@@ -515,7 +515,7 @@ Three commands, after the requirements above. `/data/flash-next` is any folder w
 engine goes there.
 
 ```bash
-git clone https://github.com/Megla123/Scream-fork-P100.git && cd Scream-fork-P100
+git clone https://github.com/Megla123/Scream-P100.git && cd Scream-P100
 bash build.sh                          # the engine: build/split/strata-split-2, about 20 minutes
 bash setup.sh /data/flash-next         # Strata v0.2.9, the model (85 GB download), tokenizer, MTP layer, pictures, run config
 bash run.sh /data/flash-next           # the server on http://127.0.0.1:8080/v1, loaded after about 5 minutes
@@ -539,7 +539,7 @@ bash run.sh /data/flash-next           # the server on http://127.0.0.1:8080/v1,
 The sections below say what each script does and how to do the same by hand. They use these names:
 
 ```bash
-P100=$HOME/Scream-fork-P100            # this repository
+P100=$HOME/Scream-P100                 # this repository
 DATA=/data/flash-next                  # the folder setup.sh fills
 STRATA=$DATA/strata-v0.2.9             # Strata's server and tools, at v0.2.9
 MODELS=$DATA/models                    # the downloaded model files
