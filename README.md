@@ -1,3 +1,7 @@
+> **Branch `poc-4x-p100`: UNVERIFIED PROOF OF CONCEPT. Nobody has run it on four cards.** It adds a build for four Tesla
+> P100 behind one PCIe switch (`bash build.sh --4x`): [docs/POC-4X.md](docs/POC-4X.md). Everything else is `main` as of
+> commit `1183c37`; for the measured two-card release use the `main` branch.
+
 <div align="center">
 
 # 😱 Scream P100

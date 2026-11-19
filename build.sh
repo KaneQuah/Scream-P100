@@ -12,6 +12,12 @@
 # UD-Q4_K_XL's 64 GB mode, docs/GUIDE.md), built into build-32g. engine/ and build/ stay as they are, so every other profile
 # keeps its engine. Needs python3.
 #
+# --4x: UNVERIFIED PROOF OF CONCEPT, nobody has run it on four cards. The engine for four Tesla P100 16 GB (docs/POC-4X.md): a
+# fresh copy of engine/ in build-4x/engine-4x with engine-4x/'s three patches applied, built for four cards into
+# build-4x/split/strata-split-4 (bash build.sh --4x; B_4X: another build directory). engine/ and build/ stay as they are.
+# Needs python3. Its binary may call CUDA's peer-access functions (FNX_PEER: the decode windows' sums pushed card to card when
+# a start probe passes, else the host exchange), so for it the check below lists them instead of refusing them.
+#
 # Environment:
 #   PF_JOB    rows of one expert per prompt-path job, a compile-time constant: 96 (default: our production for all three
 #             models, UD-Q4_K_XL since 16 Nov 2026, Edge0-145B and IQ3_S since 17 Nov) or 64 (our production until then:
@@ -29,12 +35,16 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 V32=0
+V4X=0
 case "${1:-}" in
   --32g) V32=1 ;;
+  --4x) V4X=1 ;;
   "") ;;
-  *) echo "build.sh: unknown option $1 (the only one is --32g)" >&2; exit 1 ;;
+  *) echo "build.sh: unknown option $1 (--32g or --4x)" >&2; exit 1 ;;
 esac
 if [ "$V32" = 1 ]; then B=${B:-$HERE/build-32g}; else B=${B:-$HERE/build}; fi
+CARDS=2
+if [ "$V4X" = 1 ]; then B=${B_4X:-$HERE/build-4x}; CARDS=4; fi   # the 4-card proof of concept
 JOBS=${JOBS:-8}
 PF_JOB=${PF_JOB:-96}
 GG=${GG:-$HERE/third_party/llama.cpp}
@@ -80,19 +90,34 @@ if [ "$V32" = 1 ]; then
     die "engine-32g/'s patches did not apply to engine/"
   say "the low-RAM engine's sources in $ENGINE"
 fi
+# --- with --4x: a fresh copy of engine/ with engine-4x/'s patches (peer_patch.py copies cuda_peer.hpp from beside itself)
+if [ "$V4X" = 1 ]; then
+  ENGINE=$B/engine-4x
+  mkdir -p "$B"
+  rm -rf "$ENGINE"
+  cp -r "$HERE/engine" "$ENGINE"
+  (cd "$ENGINE" && for p in ncard4_patch tail_patch peer_patch; do python3 "$HERE/engine-4x/$p.py" || exit 1; done) ||
+    die "engine-4x/'s patches did not apply to engine/"
+  say "UNVERIFIED PROOF OF CONCEPT: the 4-card engine's sources in $ENGINE (nobody has run it on four cards)"
+fi
 
 # --- configure and build (the production build: Release, sm_60, 2 cards, prompt-path jobs of 96 rows)
 cmake -S "$HERE" -B "$B" -DCMAKE_BUILD_TYPE=Release -DSCREAM_ENGINE_DIR="$ENGINE" \
   -DCMAKE_CUDA_COMPILER="$NVCC" -DCMAKE_CUDA_HOST_COMPILER="$HOSTCXX" -DCMAKE_CXX_COMPILER="$HOSTCXX" \
-  -DCMAKE_CUDA_ARCHITECTURES=60 -DSTRATA_SPLIT_ARCH=60 -DSTRATA_SPLIT_CARDS=2 -DSTRATA_SPLIT_PF_JOB="$PF_JOB" \
+  -DCMAKE_CUDA_ARCHITECTURES=60 -DSTRATA_SPLIT_ARCH=60 -DSTRATA_SPLIT_CARDS="$CARDS" -DSTRATA_SPLIT_PF_JOB="$PF_JOB" \
   -DSTRATA_GGML_DIR="$GG" ${CUDA:+-DCUDAToolkit_ROOT="$CUDA"}
 say "building with $JOBS jobs, prompt-path jobs of $PF_JOB rows (a full build took about 20 minutes on 2 x Xeon Bronze 3106; kernels_p2.cu alone about 17)"
-nice -n 10 cmake --build "$B" --target strata-split-2 -j "$JOBS"
+nice -n 10 cmake --build "$B" --target "strata-split-$CARDS" -j "$JOBS"
 
 # --- checks on the result
-EXE=$B/split/strata-split-2
+EXE=$B/split/strata-split-$CARDS
 [ -x "$EXE" ] || die "no $EXE"
 peers=$(nm -D --undefined-only "$EXE" | grep -i peer || true)
+if [ "$V4X" = 1 ]; then   # the 4-card engine enables peer access only after its start probe passes (engine-4x/cuda_peer.hpp)
+  echo "$peers" | grep -q cudaDeviceEnablePeerAccess || die "$EXE does not call cudaDeviceEnablePeerAccess: engine-4x/peer_patch.py did not take"
+  say "peer-access functions the 4-card engine can call (FNX_PEER):" $(echo "$peers" | awk '{print $2}')
+  peers=""
+fi
 if [ -n "$peers" ]; then
   echo "$peers" >&2
   die "$EXE can call a CUDA peer-access function; this engine must not"
@@ -103,4 +128,5 @@ if [ -n "$missing" ]; then
   say "WARNING: $EXE cannot find the libraries above; add the toolkit's lib64 to LD_LIBRARY_PATH when you run it"
 fi
 if [ "$V32" = 1 ]; then say "built $EXE (the low-RAM engine; setup.sh --ram 32, and --ram 64 with UD-Q4_K_XL, name it)"; else say "built $EXE"; fi
+if [ "$V4X" = 1 ]; then say "UNVERIFIED PROOF OF CONCEPT, not run on four cards; engine-4x/fill_profile_4x.py writes its profile"; fi
 sha256sum "$EXE"

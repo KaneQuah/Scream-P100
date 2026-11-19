@@ -5,6 +5,7 @@ NUMA, the IOMMU and the disk with the model, measures host-to-card copies, names
     python3 tune/check.py --data /data/flash-next                   # the folder setup.sh fills (its profile.json and models/)
     python3 tune/check.py --models /mnt/models --out report.md      # also writes the report for a GitHub issue
     python3 tune/check.py --data /data/flash-next --write-profile /data/flash-next/profile.check.json
+    python3 tune/check.py --cards 4 --models /mnt/models   # four P100: the UNVERIFIED 4-card proof of concept (docs/POC-4X.md)
 
 It takes about a minute and never loads the model. It needs Python 3.10, nvidia-smi and the driver's libcuda.so.1 (no
 CUDA toolkit). The copy test takes about 1 GiB of each card for a few seconds, so it is skipped on a card that is in use
@@ -135,6 +136,27 @@ def pci_path(bdf):
         path.append(link(d))
         d = os.path.dirname(d)
     return path
+
+
+def topo_matrix(kind):
+    """nvidia-smi topo -m (kind "m": PIX, PXB, PHB, NODE, SYS ...) or topo -p2p w (kind "w": OK, CNS, TNS, NS ...) as
+    {(i, j): value} for the cards nvidia-smi numbers i != j; {} when it cannot be read"""
+    try:
+        txt = sh(["nvidia-smi", "topo", "-m"] if kind == "m" else ["nvidia-smi", "topo", "-p2p", kind])
+    except Exception:
+        return {}
+    rows = [ln.split() for ln in txt.splitlines() if ln.strip().startswith("GPU")]
+    if not rows:
+        return {}
+    head = [x for x in rows[0] if x.startswith("GPU")]
+    out = {}
+    for r in rows[1:]:
+        if not r[0][3:].isdigit():
+            continue
+        for j, name in enumerate(head):
+            if j + 1 < len(r) and name[3:].isdigit() and name != r[0]:
+                out[(r[0][3:], name[3:])] = r[j + 1]
+    return out
 
 
 def shared_bridge(a, b):
@@ -296,7 +318,7 @@ def copy_tests(cs, seconds, log):
                 + (f", from node {r['other_node']}'s memory {r['h2d_other_node']}" if "h2d_other_node" in r else "")
                 + f"; link while copying: Gen{live.get('gen')} x{live.get('width')}")
             res[c["index"]] = r
-        if len(copiers) == 2:
+        if len(copiers) >= 2:
             out = []
             ts = [threading.Thread(target=cp.run, args=(seconds, 64 * MIB, True, out)) for cp in copiers]
             for t in ts:
@@ -304,7 +326,7 @@ def copy_tests(cs, seconds, log):
             for t in ts:
                 t.join()
             res["both"] = [round(x, 2) for x in out]
-            log(f"  both cards at once: {' + '.join(f'{x:.2f}' for x in out)} GB/s")
+            log(f"  {'both' if len(out) == 2 else f'all {len(out)}'} cards at once: {' + '.join(f'{x:.2f}' for x in out)} GB/s")
     finally:
         for cp in copiers:
             cp.close()
@@ -486,7 +508,7 @@ def os_name():
 
 
 # ------------------------------------------------------------------ verdict
-def judge(h, cs, copies, disk, model, data_free):
+def judge(h, cs, copies, disk, model, data_free, ncards=2):
     """the profile to use and the findings: a list of (level, what, advice, basis); level is stop (does not run), slow
     (costs speed), warn (something breaks or needs a change) or note"""
     found = []
@@ -494,9 +516,10 @@ def judge(h, cs, copies, disk, model, data_free):
     def add(level, what, advice, basis):
         found.append({"level": level, "what": what, "advice": advice, "basis": basis})
     p100 = [c for c in cs if "P100" in c["name"] and c["compute_cap"] == "6.0" and (c["memory.total"] or 0) >= 16000]
-    if len(p100) != 2:
+    if len(p100) != ncards:
         add("stop", f"{len(p100)} Tesla P100 16 GB found (cards: {', '.join(c['name'] for c in cs) or 'none'})",
-            "the engine is built for exactly two P100 16 GB (cc 6.0); on other cards use Strata", "the engine refuses others")
+            f"the engine is built for exactly {ncards} P100 16 GB (cc 6.0)" + ("; on other cards use Strata" if ncards == 2 else
+            " (--cards 4: the UNVERIFIED 4-card proof of concept, docs/POC-4X.md)"), "the engine refuses others")
     drv = cs[0]["driver_version"] if cs else ""
     if drv and drv.split(".")[0].isdigit() and int(drv.split(".")[0]) > 580:
         add("note", f"driver {drv}", "NVIDIA's 580 branch is the last one for Pascal; ours is 580.178.04", "")
@@ -550,6 +573,11 @@ def judge(h, cs, copies, disk, model, data_free):
         prof = {"ram": 0, "model": None, "setup": None, "why": f"{mem} GiB of RAM: too little; the 64 GB modes need about 60 GiB"}
         add("stop", f"{mem} GiB of RAM", "64 GB at least (the load's 55.6 GiB must fit beside the system); with 32 GB only the fast "
             "UD-Q4_K_XL's 32 GB mode runs (lossy; docs/GUIDE.md, \"32 GB of RAM\")", "[measured] in a 58 GiB cgroup")
+    if ncards > 2:   # the 4-card proof of concept has its own templates (IQ3_S only)
+        prof = {"ram": 96 if mem >= 88 else 0, "model": "iq3_s",
+                "setup": "bash build.sh --4x; python3 engine-4x/fill_profile_4x.py ... (docs/POC-4X.md)" if mem >= 88 else None,
+                "why": f"{mem} GiB of RAM: the UNVERIFIED 4-card IQ3_S profile" + ("" if mem >= 88 else
+                       " needs about 88 GiB as written; docs/POC-4X.md, 'Less RAM', has a starting point below that")}
     key = "iq3_s_64gb" if prof["ram"] == 64 else (model or prof["model"] or "iq3_s")
     holds = HOLDS.get(key, HOLDS["iq3_s"])
     if prof["ram"] and h["avail_gib"] < holds - 5 and not h["engines"]:   # run.sh's rule; the load's extra comes partly from the page cache
@@ -607,11 +635,31 @@ def judge(h, cs, copies, disk, model, data_free):
                 "[measured]")
     both = (copies or {}).get("both")
     singles = [(copies or {}).get(c["index"], {}).get("h2d") for c in p100]
-    if both and all(singles) and sum(both) < 0.8 * sum(singles):
+    if ncards > 2 and both and all(singles) and sum(both) < 0.8 * sum(singles):
+        add("slow", f"all {len(both)} cards at once: {sum(both):.1f} GB/s together ({' + '.join(map(str, both))}) against "
+            f"{' and '.join(map(str, singles))} alone",
+            "the cards share one link to the host: every expert the cards do not hold, every prompt chunk's sums (without peer access) "
+            "and the lookup table's rows cross it. The 4-card templates keep as many experts in VRAM as fit (docs/POC-4X.md, "
+            "'Expectations'); FNX_PREFETCH_WANT 2-3 leaves more of the link to a window's own misses", "[unmeasured] on four cards")
+        pf = min(pf or 9, 3)
+    elif both and all(singles) and sum(both) < 0.8 * sum(singles):
         pf = min(pf or 9, 3)
         add("slow", f"both cards at once: {' + '.join(map(str, both))} GB/s against {' and '.join(map(str, singles))} alone",
             "the two cards share a link (a PCIe switch or one root port); the engine copies to both at once. Put them on slots "
             "of different root ports (or CPUs); else treat it like a narrow link", "[unmeasured]")
+    if ncards > 2 and len(p100) == ncards:   # the 4-card proof of concept pushes the decode sums card to card if it can (FNX_PEER)
+        idx = [c["index"] for c in p100]
+        m, w = topo_matrix("m"), topo_matrix("w")
+        pairs = [(i, j) for i in idx for j in idx if i != j]
+        kinds = sorted({m.get(pq, "?") for pq in pairs})
+        bad_w = sorted({f"{i}->{j} {w.get((i, j), '?')}" for i, j in pairs if w.get((i, j)) != "OK"})
+        if bad_w:
+            add("note", f"nvidia-smi topo -p2p w: not OK for {', '.join(bad_w[:6])}{' ...' if len(bad_w) > 6 else ''} (topo -m: {', '.join(kinds)})",
+                "the engine will exchange through host memory (FNX_PEER falls back by itself); peer access needs PIX between the "
+                "cards, ACS off on the switch's ports and the IOMMU off or iommu=pt (docs/POC-4X.md)", "what the driver reports")
+        else:
+            add("note", f"nvidia-smi topo -p2p w: OK between all {len(pairs)} directed pairs (topo -m: {', '.join(kinds)})",
+                "the engine's start probe still decides (its log says 'Peer push between the cards is on' or why not)", "what the driver reports")
     if len(p100) == 2:
         sb = shared_bridge(*p100)
         if sb:
@@ -675,7 +723,7 @@ def report(h, cs, copies, disk, dinfo, folder, model, prof, found):
                          + (f", from node {r['other_node']}: {r['h2d_other_node']}" if "h2d_other_node" in r else "")
                          + f"; link while copying Gen{live.get('gen')} x{live.get('width')} |")
         if copies.get("both"):
-            L.append(f"| Copies, both at once | {' + '.join(map(str, copies['both']))} GB/s |")
+            L.append(f"| Copies, {'both' if len(copies['both']) == 2 else 'all'} at once | {' + '.join(map(str, copies['both']))} GB/s |")
     else:
         L.append("| Copies | not measured |")
     if disk:
@@ -718,7 +766,7 @@ def inspect(a, log=print):
     elif p100:
         log("copies (pinned host memory, driver API)")
         try:
-            copies = copy_tests(p100[:2], a.seconds, log)
+            copies = copy_tests(p100[:a.cards], a.seconds, log)
         except (OSError, RuntimeError, AttributeError) as e:   # AttributeError: a libcuda.so.1 without one of the calls
             log(f"  failed: {e}")
     folder, model, paths = find_models(a)
@@ -734,7 +782,7 @@ def inspect(a, log=print):
     elif not paths:
         log("disk: no model files found (--data or --models)")
     data_free = shutil.disk_usage(a.data).free / 1e9 if a.data and os.path.isdir(a.data) else None
-    prof, found = judge(h, cs, copies, disk, model, data_free)
+    prof, found = judge(h, cs, copies, disk, model, data_free, a.cards)
     text = report(h, cs, copies, disk, dinfo, folder, model, prof, found)
     return {"host": h, "cards": cs, "copies": copies, "disk": disk, "disk_device": dinfo, "model": model,
             "profile": prof, "findings": found, "report": text}
@@ -752,6 +800,8 @@ def main():
     ap.add_argument("--data", help="the folder setup.sh fills (profile.json, models/)")
     ap.add_argument("--models", help="the folder with the model files, if not DATA/models")
     ap.add_argument("--seconds", type=float, default=3, help="per copy and disk test (default 3)")
+    ap.add_argument("--cards", type=int, choices=[2, 4], default=2,
+                    help="4: four P100 for the UNVERIFIED 4-card proof of concept (docs/POC-4X.md); copies to all four at once")
     ap.add_argument("--no-copy", action="store_true", help="skip the copy test")
     ap.add_argument("--force-copy", action="store_true", help="run the copy test on cards that are in use")
     ap.add_argument("--no-disk", action="store_true", help="skip the disk test")
