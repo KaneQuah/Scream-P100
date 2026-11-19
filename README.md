@@ -1,6 +1,6 @@
 <div align="center">
 
-# 😱 Scream fork flash next
+# 😱 Scream fork P100
 
 **Big MoE models on two retired Tesla P100s. Loud fans, fast tokens.**
 
@@ -19,7 +19,7 @@ Flash-Next IQ3_S: **~67 tok/s writing · 110+ tok/s edits · ~1,000 tok/s readin
 
 ---
 
-Scream fork flash next is a port of [Strata](https://github.com/Niko1221/Strata)'s all-cards split engine (`strata-split-2`, from
+Scream fork P100 is a port of [Strata](https://github.com/Niko1221/Strata)'s all-cards split engine (`strata-split-2`, from
 [sFNX](https://github.com/johnfink8/sfnx)) to the **NVIDIA Tesla P100** (Pascal, sm_60), a card that engine was never
 built for. Both cards work on every layer at once, the experts that do not fit in VRAM stream in from RAM over PCIe,
 and two drafters (the model's own MTP layer and prompt lookup) let the cards check several tokens per step.
@@ -46,7 +46,7 @@ You need Linux, two Tesla P100 16 GB, 96 GB of RAM and CUDA 12 ([requirements](#
 `/data/flash-next` is any folder with about 95 GB free.
 
 ```bash
-git clone https://github.com/Megla123/Scream-fork-flash-next.git && cd Scream-fork-flash-next
+git clone https://github.com/Megla123/Scream-fork-P100.git && cd Scream-fork-P100
 bash build.sh                    # the engine, about 20 minutes
 bash setup.sh /data/flash-next   # Strata v0.2.9, the model (85 GB), tokenizer, MTP layer, pictures, run config
 bash run.sh /data/flash-next     # OpenAI-compatible API on http://127.0.0.1:8080/v1 after about 5 minutes
