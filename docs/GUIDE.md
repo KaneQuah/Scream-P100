@@ -385,7 +385,7 @@ Nov 2026, each on a freshly loaded engine, 512k, tok/s:
 | Writing right after that read | 47.8 | 65.4 | +37 % |
 | Writing code with reasoning (45 tasks, below) | 50.8 | **85.6** | +69 % |
 | Edits through an `edit` tool, as a coding agent works (26 tasks) | 44.4 | **88.0** | +98 % |
-| Rewriting a whole 127-161 line file with one change | ~46 | **~100** | ×2.2 |
+| Rewriting a whole 127-161 line file with one change | 46.7 | **107.1** | ×2.3 |
 
 Because the routing depends on what the cards hold, the fast profile's speed varies between loads by a few percent:
 three more loads of the same profile gave fresh writing 71.5, 71.5 and (256k) 74.5, Python edits 125.0-125.5, writing
