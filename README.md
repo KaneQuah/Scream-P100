@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📯 Foghorn
+# 😱 Scream fork flash next
 
 **Big MoE models on two retired Tesla P100s. Loud fans, fast tokens.**
 
@@ -19,16 +19,14 @@ Flash-Next IQ3_S: **~67 tok/s writing · 110+ tok/s edits · ~1,000 tok/s readin
 
 ---
 
-Foghorn is a port of [Strata](https://github.com/Niko1221/Strata)'s all-cards split engine (`strata-split-2`, from
+Scream fork flash next is a port of [Strata](https://github.com/Niko1221/Strata)'s all-cards split engine (`strata-split-2`, from
 [sFNX](https://github.com/johnfink8/sfnx)) to the **NVIDIA Tesla P100** (Pascal, sm_60), a card that engine was never
 built for. Both cards work on every layer at once, the experts that do not fit in VRAM stream in from RAM over PCIe,
 and two drafters (the model's own MTP layer and prompt lookup) let the cards check several tokens per step.
 
 On the same two cards, our previous setup (Strata 0.2.9's layer-split engine with our P100 kernels, where one card
-waits while the other works) wrote at 47-55 tok/s and read long prompts at 620-650 tok/s. Foghorn writes at **66.5**
+waits while the other works) wrote at 47-55 tok/s and read long prompts at 620-650 tok/s. It writes at **66.5**
 and reads at about **1,000**.
-
-> *Why "Foghorn"?* Under full load, the server's fans cooling two P100s sound like one, and *megla* is Slovenian for fog.
 
 ## ✨ Highlights
 
@@ -48,7 +46,7 @@ You need Linux, two Tesla P100 16 GB, 96 GB of RAM and CUDA 12 ([requirements](#
 `/data/flash-next` is any folder with about 95 GB free.
 
 ```bash
-git clone https://github.com/Megla123/foghorn.git && cd foghorn
+git clone https://github.com/Megla123/Scream-fork-flash-next.git && cd Scream-fork-flash-next
 bash build.sh                    # the engine, about 20 minutes
 bash setup.sh /data/flash-next   # Strata v0.2.9, the model (85 GB), tokenizer, MTP layer, pictures, run config
 bash run.sh /data/flash-next     # OpenAI-compatible API on http://127.0.0.1:8080/v1 after about 5 minutes
@@ -134,7 +132,7 @@ flowchart LR
 
 - **Split, not pipelined:** each card holds half of every layer, so both read their weights at the same time.
 - **P100 kernels:** the P100 has no `dp4a`, no tensor cores and no `__nanosleep`, and its FP16 is fast only as paired
-  `HFMA2`. Foghorn adds FP16 expert kernels for writing and for reading prompts, P100 attention, and a `dp4a` emulation
+  `HFMA2`. This port adds FP16 expert kernels for writing and for reading prompts, P100 attention, and a `dp4a` emulation
   (`engine/p100_compat.h`).
 - **Experts on demand:** about 60 % of IQ3_S's experts live only in RAM. A copy-engine thread brings the missing ones
   in, with guesses for the next layer, and each expert's blocks wait only for that expert's copy.
