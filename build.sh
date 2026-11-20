@@ -96,7 +96,7 @@ if [ "$V4X" = 1 ]; then
   mkdir -p "$B"
   rm -rf "$ENGINE"
   cp -r "$HERE/engine" "$ENGINE"
-  (cd "$ENGINE" && for p in ncard4_patch tail_patch peer_patch; do python3 "$HERE/engine-4x/$p.py" || exit 1; done) ||
+  (cd "$ENGINE" && for p in ff64_patch ncard4_patch tail_patch peer_patch prompt_peer_patch; do python3 "$HERE/engine-4x/$p.py" || exit 1; done) ||
     die "engine-4x/'s patches did not apply to engine/"
   say "UNVERIFIED PROOF OF CONCEPT: the 4-card engine's sources in $ENGINE (nobody has run it on four cards)"
 fi

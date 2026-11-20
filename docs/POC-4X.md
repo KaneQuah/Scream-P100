@@ -63,7 +63,10 @@ cards); our P100 additions assumed two in three places, and four cards need one 
    ([Kenzu/qwen3.8-flash-next-2x-p100](https://github.com/Kenzu/qwen3.8-flash-next-2x-p100), branch `x99-p100`, commit
    `c43e4b8`), applied unchanged: mode 5's tile loads zeros past the slice's last column. Kenzu's GPU test compares compact
    and zero-padded slices for the four weight types the load converts down experts to, widths 32 to 320 (160 among them),
-   1 to 96 tokens: 392 cases passed on their P100s. We have not run it again.
+   1 to 96 tokens: 392 cases passed on their P100s. We have not run it again. On a four-P100 machine the first-token logits
+   of this 160-column build were wrong (a different top token on 5 of 5 prompts, against llama.cpp and the two-card engine), so
+   `ff64_patch.py` cuts four cards' FF slices in 64-column units (192, 192, 128, 128) and the tail path is not used; the cause
+   inside the tail kernel is not found.
 4. **Peer access on NVIDIA (`FNX_PEER`), `peer_patch.py` and `cuda_peer.hpp`.** On AMD the engine already pushes the
    decode windows' sums (`k_ring_a2a_push`) and attention merge (`k_att_merge_a2a`) into the other cards' memory when every
    pair passes a start probe, else it uses the host exchange. These kernels are plain CUDA; only the decision and the
@@ -102,10 +105,12 @@ this machine, because we cannot measure on it; "Expectations" names the switches
 
 ### Not done
 
-- **The prompt path over peer access.** Its sums and attention exchange go through the copy engines into host memory and
-  out again, with flags in host memory, even when peer access works. Pointing them at device memory on the receiving card
-  would keep them off the x4 link, but then each flag must reach the receiver after the data on another path, which needs
-  care and a machine to test it on. If peer access works on your machine and reading is the bottleneck, this is the next step.
+- **The prompt path over peer access, beyond one machine.** `prompt_peer_patch.py` (`FNX_PF_PEER=1`, off by default) sends the
+  prompt path's chunk sums and attention partials into the receiving card's device buffers; the flags stay in host memory and
+  are set by the sender's stream after its copy, so a flag can in principle overtake the data, which is why it is opt-in. On
+  one machine (four P100 behind a PEX8748 on a chipset x4) the first-token logits were bit-identical to the host exchange on 12
+  prompts of 60 to about 26k tokens over four loads, and reading a 38.9k-token prompt went from 338 to 889 tok/s. One machine
+  and one platform are not a proof; the flags in device memory would remove the question.
 - **UD-Q4_K_XL and Edge0-145B.** UD-Q4_K_XL's experts are 72 GiB, so about 40 % would stay in RAM behind the x4 link;
   Edge0 is refused (above).
 - **`setup.sh`.** It still writes the two-card profile and wants the two-card engine; the 4-card profile comes from

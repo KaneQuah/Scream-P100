@@ -18,8 +18,10 @@ match).
 | File | What it is |
 |---|---|
 | `ncard4_patch.py` | `pf_gather` (`FNX_PF_SP`) for any count of cards: each card's finished part goes once to its own host rows and the others copy it from there (two cards: the same bytes in the same order as before). Edge0-145B (`FNX_LATENT`, `FNX_LAT_SPLIT`) refused on more than two cards with a plain message at the load |
+| `ff64_patch.py` | four cards cut the experts' FF width in 64-column units (192, 192, 128, 128), not 160 each: the first-token logits of the 160-column build were wrong in a hardware run (issue #1); applied first, so `tail_patch.py`'s tail path is not used |
 | `tail_patch.py` | the prompt path's down kernel for FF slices of 160 columns (2.5 x 64): Kenzu's change for three P100 (github.com/Kenzu/qwen3.8-flash-next-2x-p100, commit `c43e4b8`), unchanged |
 | `peer_patch.py` | `FNX_PEER` on NVIDIA: the decode windows' sums and attention merge pushed into the other cards' memory when every pair passes a start probe, else the host exchange; copies `cuda_peer.hpp` into `src/` |
+| `prompt_peer_patch.py` | `FNX_PF_PEER=1` (off by default): the prompt path's chunk sums and attention partials go card to card into device buffers instead of page-locked host memory, flags stay in host memory; needs the peer probe to pass |
 | `cuda_peer.hpp` | the IOMMU check, peer access and the start probe (from `engine/src/hip/peer.h`, the AMD version) |
 | `flash-next-iq3s-4x-256k.template.json`, `flash-next-iq3s-4x-512k.template.json` | the IQ3_S profiles for four cards |
 | `fill_profile_4x.py` | writes a run config from them through `profile/fill_profile.py` (`--context 256k`, the default, `512k` or `128k`) |
