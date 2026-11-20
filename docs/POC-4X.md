@@ -69,7 +69,9 @@ cards); our P100 additions assumed two in three places, and four cards need one 
    pair passes a start probe, else it uses the host exchange. These kernels are plain CUDA; only the decision and the
    mailboxes were AMD-only. The patch adds them on NVIDIA:
    - every card's IOMMU group is read first; a translated domain (`DMA`, `DMA-FQ`) faults every peer write, so then there is
-     no probe, only the host exchange;
+     no probe, only the host exchange (`FNX_PEER_IOMMU_TRUST=1` skips this one rule and leaves the rest, probe included, in
+     place: on four P100 behind a PEX8748 with a translating IOMMU all 12 pairs passed the probe, 5.4 to 5.6 GB/s;
+     off by default);
    - `cudaDeviceCanAccessPeer` for every pair, then `cudaDeviceEnablePeerAccess`;
    - every directed pair: 4 MiB stored by the sender into the receiver's memory, compared in full by the receiver, the
      stores timed, and 200 flag round trips. Nothing reads a peer's memory, the probe included: the engine only pushes, and a

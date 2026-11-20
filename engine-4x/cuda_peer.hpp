@@ -97,12 +97,19 @@ inline void cuda_peer_disable_all(const std::vector<int>& devs) {
 // what failed; on failure peer access is off again on every pair
 inline bool cuda_peer_enable_and_probe(const std::vector<int>& devs, std::string& why) {
     using namespace cuda_peer_detail;
+    // FNX_PEER_IOMMU_TRUST=1 (opt-in): skip the IOMMU-type rule below and let CUDA's per-pair answer and the start probe decide.
+    // For machines where the cards sit behind a PCIe switch and peer writes work although the group type says DMA / DMA-FQ
+    // (checked on 4 x P100 behind a PEX8748: all 12 pairs pass the probe with a translating IOMMU). Off by default.
+    const char* trust_env = std::getenv("FNX_PEER_IOMMU_TRUST");
+    const bool trust_iommu = trust_env && trust_env[0] == '1';
+    bool iommu_skipped = false;
     for (int d : devs) {
         const std::string t = card_iommu_type(d);
         if (t == "?") { why = "card " + std::to_string(d) + ": its IOMMU group cannot be read from sysfs"; return false; }
         if (!t.empty() && t != "identity") {
+            if (trust_iommu) { iommu_skipped = true; continue; }
             why = "card " + std::to_string(d) + " is in an IOMMU group of type '" + t +
-                  "', which faults every write from another card (boot with iommu=pt, or the IOMMU off)";
+                  "', which faults every write from another card (boot with iommu=pt, or the IOMMU off; or FNX_PEER_IOMMU_TRUST=1 to let the start probe decide)";
             return false;
         }
     }
@@ -213,11 +220,12 @@ inline bool cuda_peer_enable_and_probe(const std::vector<int>& devs, std::string
                 return false;
             }
         }
-    char line[256];
+    char line[320];
     std::snprintf(line, sizeof line,
                   "all %zu directed pairs: 4 MiB stored and compared in full on the receiving card, %.1f to %.1f GB/s, flag round trip at most %.1f us",
                   devs.size() * (devs.size() - 1), lo_gbs, hi_gbs, worst_rt);
     why = line;
+    if (iommu_skipped) why += " (IOMMU group type not checked: FNX_PEER_IOMMU_TRUST=1)";
     return true;
 }
 #undef FNX_CPEER_CK
